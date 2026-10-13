@@ -39,6 +39,7 @@ SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".guide_maker.json")
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".tga")
 SUFFIX = "_guide"
+COMPARE_SUFFIX = "_compare"   # 원본 + 가이드를 붙인 이미지
 
 TOOLS = [  # (키, 이름)
     ("pen", "펜"),
@@ -102,11 +103,11 @@ class Doc(object):
     def name(self):
         return os.path.basename(self.path)
 
-    def out_name(self):
+    def out_name(self, suffix=SUFFIX):
         stem, ext = os.path.splitext(self.name)
         if ext.lower() not in IMAGE_EXTS:
             ext = ".png"
-        return stem + SUFFIX + ext
+        return stem + suffix + ext
 
 
 def _arrow_head(p0, p1, width):
@@ -383,22 +384,70 @@ def composite(base_rgba, shapes, scale):
     return out
 
 
-def export_doc(doc, out_dir):
-    """원본 해상도로 그려서 저장. 저장한 경로를 돌려준다."""
-    img = composite(doc.image, doc.shapes, 1.0)
-    path = os.path.join(out_dir, doc.out_name())
+def save_image(img, path, src_mode):
+    """확장자에 맞게 저장 (원본에 투명이 있으면 유지)"""
     ext = os.path.splitext(path)[1].lower()
     if ext in (".jpg", ".jpeg"):
         img.convert("RGB").save(path, quality=95, subsampling=0)
     elif ext == ".bmp":
         img.convert("RGB").save(path)
     elif ext in (".tif", ".tiff"):
-        (img if "A" in doc.src_mode else img.convert("RGB")).save(path, compression="tiff_lzw")
+        (img if "A" in src_mode else img.convert("RGB")).save(path, compression="tiff_lzw")
     elif ext == ".webp":
         img.save(path, quality=95)
     else:
-        (img if ("A" in doc.src_mode or doc.src_mode == "P") else img.convert("RGB")).save(path)
+        (img if ("A" in src_mode or src_mode == "P") else img.convert("RGB")).save(path)
     return path
+
+
+def _label(img, text, size):
+    """이미지 왼쪽 위에 이름표 (흰 글씨 + 검은 테두리 + 반투명 바탕)"""
+    font = get_font(size)
+    pad = max(4, size // 3)
+    d = ImageDraw.Draw(img)
+    l, t, r, b = d.textbbox((0, 0), text, font=font, stroke_width=max(1, size // 14))
+    box = Image.new("RGBA", (r - l + pad * 2, b - t + pad * 2), (0, 0, 0, 140))
+    img.alpha_composite(box, dest=(pad, pad))
+    d.text((pad * 2 - l, pad * 2 - t), text, font=font, fill=(255, 255, 255, 255),
+           stroke_width=max(1, size // 14), stroke_fill=(0, 0, 0, 255))
+
+
+def compare_image(orig, guide, layout="h", divider=True, labels=False):
+    """원본과 가이드를 붙인 한 장. layout: "h" 좌우 / "v" 위아래"""
+    W, H = orig.size
+    gap = max(2, int(round(min(W, H) * 0.004))) if divider else 0
+    if layout == "v":
+        out = Image.new("RGBA", (W, H * 2 + gap), (255, 255, 255, 255))
+        pos2 = (0, H + gap)
+    else:
+        out = Image.new("RGBA", (W * 2 + gap, H), (255, 255, 255, 255))
+        pos2 = (W + gap, 0)
+    a, b = orig.copy(), guide.copy()
+    if labels:
+        size = max(14, int(round(min(W, H) * 0.035)))
+        _label(a, "원본", size)
+        _label(b, "가이드", size)
+    out.alpha_composite(a, dest=(0, 0))
+    out.alpha_composite(b, dest=pos2)
+    return out
+
+
+def export_doc(doc, out_dir, mode="guide", layout="h", divider=True, labels=False):
+    """원본 해상도로 그려서 저장. mode: "guide" 가이드만 / "compare" 붙인 것만 / "both" 둘 다.
+    저장한 경로 목록을 돌려준다."""
+    guide = composite(doc.image, doc.shapes, 1.0)
+    paths = []
+    if mode in ("guide", "both"):
+        paths.append(save_image(guide, os.path.join(out_dir, doc.out_name()), doc.src_mode))
+    if mode in ("compare", "both"):
+        img = compare_image(doc.image, guide, layout, divider, labels)
+        paths.append(save_image(img, os.path.join(out_dir, doc.out_name(COMPARE_SUFFIX)), doc.src_mode))
+    return paths
+
+
+def out_names(doc, mode):
+    return ([doc.out_name()] if mode in ("guide", "both") else []) + \
+           ([doc.out_name(COMPARE_SUFFIX)] if mode in ("compare", "both") else [])
 
 
 def list_images(folder):
@@ -739,6 +788,37 @@ def main():
     canvas_r.config(cursor="crosshair")
 
     # ---------- 내보내기 ----------
+    opt = ttk.Frame(root, padding=(8, 6, 8, 0))
+    opt.pack(fill="x")
+    ttk.Label(opt, text="내보내기").pack(side="left")
+    mode_var = tk.StringVar(value=settings.get("export_mode", "guide"))
+    for val, label in (("guide", "가이드만"), ("compare", "원본 + 가이드 붙이기"), ("both", "둘 다")):
+        ttk.Radiobutton(opt, text=label, value=val, variable=mode_var,
+                        command=lambda: update_export_opts()).pack(side="left", padx=(8, 0))
+    ttk.Separator(opt, orient="vertical").pack(side="left", fill="y", padx=10)
+    layout_lbl = ttk.Label(opt, text="배치")
+    layout_lbl.pack(side="left")
+    layout_var = tk.StringVar(value=settings.get("export_layout", "h"))
+    layout_rbs = [ttk.Radiobutton(opt, text=t, value=v, variable=layout_var)
+                  for v, t in (("h", "좌우"), ("v", "위아래"))]
+    for rb in layout_rbs:
+        rb.pack(side="left", padx=(6, 0))
+    divider_var = tk.BooleanVar(value=bool(settings.get("export_divider", True)))
+    labels_var = tk.BooleanVar(value=bool(settings.get("export_labels", False)))
+    divider_cb = ttk.Checkbutton(opt, text="구분선", variable=divider_var)
+    divider_cb.pack(side="left", padx=(12, 0))
+    labels_cb = ttk.Checkbutton(opt, text="이름표 (원본 / 가이드)", variable=labels_var)
+    labels_cb.pack(side="left", padx=(8, 0))
+    name_lbl = ttk.Label(opt, foreground="#888")
+    name_lbl.pack(side="left", padx=(12, 0))
+
+    def update_export_opts():
+        on = mode_var.get() != "guide"
+        for w in layout_rbs + [divider_cb, labels_cb]:
+            w.state(["!disabled"] if on else ["disabled"])
+        name_lbl.config(text={"guide": "→ 이름_guide", "compare": "→ 이름_compare",
+                              "both": "→ 이름_guide + 이름_compare"}[mode_var.get()])
+
     bot = ttk.Frame(root, padding=8)
     bot.pack(fill="x")
     ttk.Label(bot, text="저장 폴더").pack(side="left")
@@ -1485,10 +1565,11 @@ def main():
                     return
                 if ans:
                     docs = drawn
-        exist = [d for d in docs if os.path.exists(os.path.join(out, d.out_name()))]
+        mode = mode_var.get()
+        exist = [n for d in docs for n in out_names(d, mode) if os.path.exists(os.path.join(out, n))]
         if exist and not messagebox.askyesno(
                 APP_NAME, "같은 이름의 파일이 %d개 있습니다. 덮어쓸까요?\n\n%s"
-                % (len(exist), "\n".join(d.out_name() for d in exist[:8])), parent=root):
+                % (len(exist), "\n".join(exist[:8])), parent=root):
             return
         root.config(cursor="watch")
         root.update_idletasks()
@@ -1497,14 +1578,14 @@ def main():
             set_status("내보내는 중… %d / %d  %s" % (i + 1, len(docs), d.name))
             root.update_idletasks()
             try:
-                ok.append(export_doc(d, out))
+                ok += export_doc(d, out, mode, layout_var.get(), bool(divider_var.get()), bool(labels_var.get()))
             except Exception as e:
                 fail.append("%s: %s" % (d.name, e))
         root.config(cursor="")
         settings["out_dir"] = out
         save_settings(settings)
-        set_status("내보내기 완료: %d장 -> %s" % (len(ok), out) + ("  (실패 %d)" % len(fail) if fail else ""))
-        msg = "%d장을 저장했습니다.\n%s" % (len(ok), out)
+        set_status("내보내기 완료: %d개 파일 -> %s" % (len(ok), out) + ("  (실패 %d)" % len(fail) if fail else ""))
+        msg = "%d개 파일을 저장했습니다.\n%s" % (len(ok), out)
         if len(ok) == 1:
             msg = "저장했습니다.\n%s" % ok[0]
         if fail:
@@ -1518,6 +1599,8 @@ def main():
                         tool_widths=dict(tool_widths, **{st["tool"]: int(width_var.get())}),
                         text_size=int(tsize_var.get()),
                         text_stroke=bool(stroke_var.get()), out_dir=out_var.get().strip(),
+                        export_mode=mode_var.get(), export_layout=layout_var.get(),
+                        export_divider=bool(divider_var.get()), export_labels=bool(labels_var.get()),
                         grid_cols=get_counts()[0], grid_rows=get_counts()[1], grid_width=grid_width(),
                         geometry=root.geometry())
         save_settings(settings)
@@ -1721,6 +1804,7 @@ def main():
 
     set_color(st["color"])
     set_tool(st["tool"])
+    update_export_opts()
     alpha_lbl.config(text="%d%%" % alpha_var.get())
     width_lbl.config(text="%dpx" % width_var.get())
     tsize_lbl.config(text="%dpx" % tsize_var.get())
