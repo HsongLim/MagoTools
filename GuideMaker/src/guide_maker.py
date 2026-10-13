@@ -8,7 +8,7 @@ Guide Maker
 
 단축키
   Ctrl+O 불러오기   Ctrl+Z 실행 취소   Ctrl+Y / Ctrl+Shift+Z 다시 실행
-  ← / → 이전/다음 이미지   1~7 도구 선택   [ / ] 굵기   Ctrl+E 현재 이미지 내보내기
+  ← / → 이전/다음 이미지   1~8 도구 선택   [ / ] 굵기   Ctrl+E 현재 이미지 내보내기
 """
 import os
 import re
@@ -26,7 +26,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 APP_NAME = "Guide Maker"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "guidemaker-v"
@@ -48,6 +48,7 @@ TOOLS = [  # (키, 이름)
     ("arrow", "화살표"),
     ("grid", "그리드"),
     ("text", "글자"),
+    ("eraser", "지우개"),
 ]
 QUICK_COLORS = ["#ff2a2a", "#ffd400", "#2bd94a", "#22d3ee", "#2b6cff", "#ff3df5", "#ffffff", "#000000"]
 
@@ -161,6 +162,43 @@ def grid_lines(q, cols, rows):
         v = j / float(rows)
         out.append((m(0.0, v), m(1.0, v)))
     return out
+
+
+def _seg_dist(p, a, b):
+    (px, py), (ax, ay), (bx, by) = p, a, b
+    dx, dy = bx - ax, by - ay
+    L = dx * dx + dy * dy
+    t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def shape_hit(sh, p, tol):
+    """원본 좌표 p 가 도형 sh 위(선은 tol 거리 안)에 있는지"""
+    t = sh["type"]
+    pts = sh["pts"]
+    half = sh.get("width", 1.0) / 2.0 + tol
+    if t == "text":
+        x0, y0, x1, y1 = text_bbox(sh, 1.0)
+        return x0 - tol <= p[0] <= x1 + tol and y0 - tol <= p[1] <= y1 + tol
+    if t == "grid":
+        return point_in_poly(p, pts) or any(_seg_dist(p, pts[i], pts[(i + 1) % 4]) <= half for i in range(4))
+    if t in ("rect", "fillrect"):
+        (x0, y0), (x1, y1) = pts[0], pts[-1]
+        l, r, tp, b = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+        if t == "fillrect":
+            return l - tol <= p[0] <= r + tol and tp - tol <= p[1] <= b + tol
+        corners = [(l, tp), (r, tp), (r, b), (l, b)]
+        return any(_seg_dist(p, corners[i], corners[(i + 1) % 4]) <= half for i in range(4))
+    if len(pts) == 1:
+        return math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) <= half
+    if t in ("line", "arrow"):
+        return _seg_dist(p, pts[0], pts[-1]) <= half + (sh.get("width", 1.0) * 2 if t == "arrow" else 0)
+    return any(_seg_dist(p, a, b) <= half for a, b in zip(pts, pts[1:]))
+
+
+def scale_pts(pts, origin, f):
+    ox, oy = origin
+    return [(ox + (x - ox) * f, oy + (y - oy) * f) for x, y in pts]
 
 
 def point_in_poly(p, poly):
@@ -595,6 +633,8 @@ def main():
         "tedit": None,        # 글자 입력 중
         "tsel": None,         # 선택한 글자
         "tdrag": None,        # 글자 이동/크기 조절 중
+        "hover": None,        # 지우개가 가리키는 도형
+        "wheel": None,        # 휠로 크기 조절 중인 도형 (연속 휠은 되돌리기 한 번으로)
     }
 
     # ---------- 도구 막대 ----------
@@ -728,6 +768,7 @@ def main():
             width_var.set(tool_width(t))
             width_lbl.config(text="%dpx" % width_var.get())
         st["tool"] = t
+        st["hover"] = None
         tool_var.set(t)
         if cur():
             refresh()
@@ -863,6 +904,20 @@ def main():
                     r = 6 if sel else 5
                     canvas_r.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline="#000000",
                                               fill="#ffffff" if sel else "#9aa3ad", width=1)
+                if sel:  # 변 가운데 손잡이 (동그라미)
+                    for k in range(4):
+                        (ax, ay), (bx, by) = sh["pts"][k], sh["pts"][(k + 1) % 4]
+                        cx, cy = to_canvas(((ax + bx) / 2.0, (ay + by) / 2.0))
+                        canvas_r.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, outline="#000000", fill="#ffffff")
+        hv = st["hover"]
+        if st["tool"] == "eraser" and hv is not None and any(x is hv for x in visible(doc)):
+            if hv["type"] == "text":
+                x0, y0, x1, y1 = text_canvas_bbox(hv)
+            else:
+                x0, y0, x1, y1 = shape_bbox(hv, s)
+                x0, y0, x1, y1 = x0 + off[0] + 8, y0 + off[1] + 8, x1 + off[0] - 8, y1 + off[1] - 8
+            # 점선 + 굵은 선은 윈도우에서 안 그려질 수 있어서 실선
+            canvas_r.create_rectangle(x0, y0, x1, y1, outline="#ff5050", width=2)
         canvas_r.create_text(8, 8, anchor="nw", fill="#8a9099",
                              text="%d×%d  가이드 %d개" % (doc.size[0], doc.size[1], len(visible(doc))))
 
@@ -992,6 +1047,72 @@ def main():
             st["tdrag"] = None
             start_text_edit(doc, hit[1]["pts"][0], old=hit[1])
 
+    def eraser_target(doc, ev):
+        """지우개로 가리킨 맨 위 도형"""
+        p = ((ev.x - st["off"][0]) / st["scale"], (ev.y - st["off"][1]) / st["scale"])
+        tol = 6.0 / st["scale"]
+        for sh in reversed(visible(doc)):
+            if shape_hit(sh, p, tol):
+                return sh
+        return None
+
+    def delete_shape(doc, sh):
+        replace_shape(doc, sh, dict(sh, _deleted=True))  # 되돌리기로 살릴 수 있게 기록만 남김
+        if st["sel"] is sh:
+            st["sel"] = None
+        if st["tsel"] is sh:
+            st["tsel"] = None
+        st["hover"] = None
+        refresh()
+        set_status("%s 지움 (되돌리기: %s+Z)" % (dict(TOOLS).get(sh["type"], "가이드"), "Cmd" if IS_MAC else "Ctrl"))
+
+    def delete_selected(*_):
+        doc = cur()
+        if not doc or st["tedit"]:
+            return
+        for sh in (st["sel"] if st["tool"] == "grid" else None, st["tsel"] if st["tool"] == "text" else None):
+            if sh is not None and any(x is sh for x in visible(doc)):
+                delete_shape(doc, sh)
+                return
+
+    def on_wheel(ev):
+        """그리드 / 글자 위에서 휠: 가운데 기준 크기 조절"""
+        doc = cur()
+        if not doc or st["edit"] or st["tdrag"] or st["tedit"]:
+            return
+        if getattr(ev, "num", None) in (4, 5):
+            up = ev.num == 4
+        else:
+            up = ev.delta > 0
+        f = 1.06 if up else 1 / 1.06
+        target = None
+        if st["tool"] == "grid":
+            hit = grid_hit(doc, ev)
+            target = hit[1] if hit else None
+        elif st["tool"] == "text":
+            hit = text_hit(doc, ev)
+            target = hit[1] if hit else None
+        if target is None:
+            return
+        import time
+        w = st["wheel"]
+        now = time.time()
+        if w and w["obj"] is target and now - w["t"] < 1.0 and doc.shapes and doc.shapes[-1] is target:
+            sh = target  # 이어서 굴리면 같은 기록 안에서 계속 바꿈
+        else:
+            sh = replace_shape(doc, target, dict(target, pts=[tuple(x) for x in target["pts"]]))
+        if sh["type"] == "grid":
+            c = (sum(x for x, _ in sh["pts"]) / 4.0, sum(y for _, y in sh["pts"]) / 4.0)
+            sh["pts"] = scale_pts(sh["pts"], c, f)
+            st["sel"] = sh
+        else:
+            sh["size"] = max(4.0 / st["scale"], sh["size"] * f)
+            st["tsel"] = sh
+        st["wheel"] = {"obj": sh, "t": now}
+        refresh_soon()
+        set_status("%s 크기 조절 (휠)" % ("그리드" if sh["type"] == "grid" else "글자"))
+        return "break"
+
     def on_motion(ev):
         doc = cur()
         cursor = "crosshair"
@@ -1001,9 +1122,28 @@ def main():
                                                ("size_nw_se" if IS_WIN else "bottom_right_corner"))
         elif doc and st["tool"] == "grid" and not st["edit"]:
             hit = grid_hit(doc, ev)
-            cursor = "crosshair" if not hit or hit[0] == "corner" else "fleur"
+            if not hit:
+                cursor = "crosshair"
+            elif hit[0] == "corner":
+                cursor = ("size_nw_se" if IS_WIN else "bottom_right_corner") if (ev.state & 0x0001) else "crosshair"
+            elif hit[0] == "edge":
+                (ax, ay), (bx, by) = hit[1]["pts"][hit[2]], hit[1]["pts"][(hit[2] + 1) % 4]
+                horiz = abs(bx - ax) >= abs(by - ay)
+                cursor = ("size_ns" if horiz else "size_we") if IS_WIN else \
+                         ("sb_v_double_arrow" if horiz else "sb_h_double_arrow")
+            else:
+                cursor = "fleur"
+        elif doc and st["tool"] == "eraser":
+            hv = eraser_target(doc, ev)
+            cursor = "X_cursor" if hv is not None else "arrow"
+            if hv is not st["hover"]:
+                st["hover"] = hv
+                refresh_soon()
         if str(canvas_r.cget("cursor")) != cursor:
-            canvas_r.config(cursor=cursor)
+            try:
+                canvas_r.config(cursor=cursor)
+            except Exception:
+                canvas_r.config(cursor="crosshair")
 
     last_counts = [max(1, min(64, int(cols_var.get()))), max(1, min(64, int(rows_var.get())))]
 
@@ -1039,13 +1179,20 @@ def main():
             set_status("그리드 칸: 가로 %d × 세로 %d" % (c, r))
 
     def grid_hit(doc, ev):
-        """누른 곳: ("corner", 도형, 번호) / ("move", 도형, None) / None"""
+        """누른 곳: ("corner"/"edge", 도형, 번호) / ("move", 도형, None) / None"""
         grids = [x for x in visible(doc) if x["type"] == "grid"]
         for sh in reversed(grids):
             for k, pt in enumerate(sh["pts"]):
                 cx, cy = to_canvas(pt)
                 if abs(cx - ev.x) <= 9 and abs(cy - ev.y) <= 9:
                     return "corner", sh, k
+        sel = st["sel"]
+        if sel is not None and any(x is sel for x in grids):
+            for k in range(4):
+                (ax, ay), (bx, by) = sel["pts"][k], sel["pts"][(k + 1) % 4]
+                cx, cy = to_canvas(((ax + bx) / 2.0, (ay + by) / 2.0))
+                if abs(cx - ev.x) <= 8 and abs(cy - ev.y) <= 8:
+                    return "edge", sel, k
         p = ((ev.x - st["off"][0]) / st["scale"], (ev.y - st["off"][1]) / st["scale"])
         for sh in reversed(grids):
             if point_in_poly(p, sh["pts"]):
@@ -1093,6 +1240,12 @@ def main():
             st["tsel"] = None
             start_text_edit(doc, p)
             return
+        if st["tool"] == "eraser":
+            st["drawing"] = None
+            sh = eraser_target(doc, ev)
+            if sh is not None:
+                delete_shape(doc, sh)
+            return
         if st["tool"] == "grid":
             hit = grid_hit(doc, ev)
             if hit:
@@ -1102,6 +1255,8 @@ def main():
                 work = dict(sh, pts=[tuple(x) for x in sh["pts"]])
                 i = next(n for n, x in enumerate(doc.shapes) if x is sh)
                 doc.shapes[i] = work
+                if kind == "corner" and (ev.state & 0x0001):  # Shift + 코너 = 전체 크기 조절
+                    kind = "scale"
                 st["edit"] = {"kind": kind, "k": k, "orig": sh, "work": work,
                               "start": ((ev.x - st["off"][0]) / st["scale"], (ev.y - st["off"][1]) / st["scale"]),
                               "pts0": list(work["pts"])}
@@ -1135,6 +1290,21 @@ def main():
             p = ((ev.x - st["off"][0]) / st["scale"], (ev.y - st["off"][1]) / st["scale"])
             if ed["kind"] == "corner":
                 ed["work"]["pts"][ed["k"]] = p
+            elif ed["kind"] == "scale":  # 반대쪽 코너 기준으로 모양 그대로 키우고 줄이기
+                k = ed["k"]
+                opp = ed["pts0"][(k + 2) % 4]
+                c0 = ed["pts0"][k]
+                vx, vy = c0[0] - opp[0], c0[1] - opp[1]
+                L = vx * vx + vy * vy or 1.0
+                f = max(0.03, ((p[0] - opp[0]) * vx + (p[1] - opp[1]) * vy) / L)
+                ed["work"]["pts"] = scale_pts(ed["pts0"], opp, f)
+            elif ed["kind"] == "edge":  # 변 하나만 밀고 당기기 (그 변의 두 코너가 같이 움직임)
+                k = ed["k"]
+                dx, dy = p[0] - ed["start"][0], p[1] - ed["start"][1]
+                pts = list(ed["pts0"])
+                for j in (k, (k + 1) % 4):
+                    pts[j] = (pts[j][0] + dx, pts[j][1] + dy)
+                ed["work"]["pts"] = pts
             else:
                 dx, dy = p[0] - ed["start"][0], p[1] - ed["start"][1]
                 ed["work"]["pts"] = [(x + dx, y + dy) for x, y in ed["pts0"]]
@@ -1213,7 +1383,7 @@ def main():
             else:
                 doc.shapes[i] = orig
                 st["sel"] = replace_shape(doc, orig, work)
-                set_status("그리드 %s" % ("코너 이동" if ed["kind"] == "corner" else "이동"))
+                set_status("그리드 %s" % {"corner": "코너 이동", "scale": "크기 조절", "edge": "변 이동"}.get(ed["kind"], "이동"))
             refresh()
             return
         sh = st["drawing"]
@@ -1528,6 +1698,11 @@ def main():
     canvas_r.bind("<ButtonRelease-1>", on_release)
     canvas_r.bind("<Double-Button-1>", on_double)
     canvas_r.bind("<Motion>", on_motion)
+    canvas_r.bind("<MouseWheel>", on_wheel)       # 윈도우 / 맥
+    canvas_r.bind("<Button-4>", on_wheel)         # 리눅스
+    canvas_r.bind("<Button-5>", on_wheel)
+    root.bind("<Delete>", key(delete_selected))
+    root.bind("<BackSpace>", key(delete_selected))
     for c in (canvas_l, canvas_r):
         c.bind("<Configure>", lambda e: root.after_idle(refresh))
     mod = "Command" if IS_MAC else "Control"
