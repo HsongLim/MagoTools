@@ -24,7 +24,9 @@ try {
   New-Item -ItemType Directory -Force $p | Out-Null
   Copy-Item "$work\dist\GuideMaker.exe" $p
   Copy-Item assets\GuideMaker.ico $p
-  Copy-Item config\README_windows.txt "$p\README.txt"
+  # 사용법은 앱 안 설명서(help_text)에서 만들어서 항상 같게
+  python -c "import sys; sys.path.insert(0, 'src'); import guide_maker as g; open(sys.argv[1], 'w', encoding='utf-8-sig').write(g.help_text(False))" "$p\README.txt"
+  if ($LASTEXITCODE -ne 0) { Copy-Item config\README_windows.txt "$p\README.txt" }
 
   New-Item -ItemType Directory -Force dist | Out-Null
   $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source

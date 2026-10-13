@@ -37,7 +37,9 @@ codesign --force --deep --sign - "$APP" 2>/dev/null || true
 STAGE="$WORK/dmg"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/Guide Maker.app"
 ln -s /Applications "$STAGE/Applications"
-cp config/README_mac.txt "$STAGE/읽어보세요.txt"
+# 사용법은 앱 안 설명서(help_text)에서 만들어서 항상 같게
+python -c "import sys; sys.path.insert(0, 'src'); import guide_maker as g; open(sys.argv[1], 'w', encoding='utf-8').write(g.help_text(True))" "$STAGE/읽어보세요.txt" \
+  || cp config/README_mac.txt "$STAGE/읽어보세요.txt"
 mkdir -p dist
 DMG="dist/GuideMaker_${VER}_${ARCH}.dmg"
 rm -f "$DMG"
