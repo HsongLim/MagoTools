@@ -1,0 +1,82 @@
+# guidemaker-v로 시작하는 태그(예: guidemaker-v1.1.0)를 올리면 윈도우 설치 파일 + 맥 dmg(Apple Silicon, Intel)를 만들어 Releases에 올림
+name: guidemaker
+
+on:
+  push:
+    tags: ["guidemaker-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VER=$(grep -m1 '^APP_VERSION' GuideMaker/src/guide_maker.py | cut -d'"' -f2)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME#guidemaker-v}" != "$VER" ]; then
+            echo "::error::태그(${GITHUB_REF_NAME})와 APP_VERSION($VER)이 다릅니다"; exit 1
+          fi
+
+  windows:
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
+      - name: Build
+        shell: pwsh
+        run: ./GuideMaker/build/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: GuideMaker/dist/GuideMaker_Setup_*.exe
+
+  mac:
+    needs: check-version
+    strategy:
+      matrix:
+        os: [macos-15, macos-15-intel]   # Apple Silicon, Intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: PY=python bash GuideMaker/build/build_mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.os }}
+          path: GuideMaker/dist/GuideMaker_*.dmg
+
+  release:
+    needs: [check-version, windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=${{ needs.check-version.outputs.version }}
+          NOTES="$(sed -n "/^## v$VER/,/^## v/p" GuideMaker/CHANGELOG.md | sed '1d;$d')"
+          [ -z "$NOTES" ] && NOTES="Guide Maker v$VER"
+          gh release create "guidemaker-v$VER" out/* --title "Guide Maker v$VER" --notes "$NOTES" || \
+          gh release upload "guidemaker-v$VER" out/* --clobber

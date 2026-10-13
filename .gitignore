@@ -1,0 +1,7 @@
+# 빌드 결과
+dist/
+build/build/
+*.spec
+__pycache__/
+*.pyc
+.DS_Store
