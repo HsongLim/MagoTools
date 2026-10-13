@@ -26,7 +26,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 APP_NAME = "Guide Maker"
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "guidemaker-v"
