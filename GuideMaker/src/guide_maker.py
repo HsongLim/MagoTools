@@ -622,6 +622,13 @@ def main():
     ttk.Label(bar, text="세로").pack(side="left")
     rows_sp = ttk.Spinbox(bar, from_=1, to=64, width=4, textvariable=rows_var, command=lambda: grid_count_changed())
     rows_sp.pack(side="left", padx=4)
+    ttk.Label(bar, text="선 굵기").pack(side="left", padx=(6, 0))
+    gw_var = tk.IntVar(value=int(settings.get("grid_width", 2)))
+    gw_sp = ttk.Spinbox(bar, from_=1, to=50, width=4, textvariable=gw_var, command=lambda: apply_style_to_grid())
+    gw_sp.pack(side="left", padx=(4, 0))
+    ttk.Label(bar, text="px").pack(side="left", padx=(2, 0))
+    gw_sp.bind("<Return>", lambda e: apply_style_to_grid())
+    gw_sp.bind("<FocusOut>", lambda e: apply_style_to_grid())
     for sp in (cols_sp, rows_sp):
         sp.bind("<Return>", lambda e: grid_count_changed())
         sp.bind("<FocusOut>", lambda e: grid_count_changed())
@@ -1059,6 +1066,7 @@ def main():
         if sh is not None:
             cols_var.set(sh.get("cols", 4))
             rows_var.set(sh.get("rows", 4))
+            gw_var.set(max(1, int(round(sh.get("width", 2)))))
 
     def on_press(ev):
         canvas_r.focus_set()  # 입력칸에 있던 키보드 입력을 화면으로 (단축키가 다시 동작하게)
@@ -1161,6 +1169,7 @@ def main():
                 items = [canvas_r.create_line(a[0], a[1], b[0], b[1], fill=col, width=w, capstyle="round")]
             elif sh["type"] == "grid":
                 c, r = get_counts()
+                w = max(1, int(round(grid_width() * st["scale"])))
                 items = [canvas_r.create_rectangle(a[0], a[1], b[0], b[1], outline=col, width=w)]
                 for i in range(1, c):
                     x = a[0] + (b[0] - a[0]) * i / c
@@ -1224,6 +1233,7 @@ def main():
             l, r_, t, b = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
             sh["pts"] = [(l, t), (r_, t), (r_, b), (l, b)]
             sh["cols"], sh["rows"] = get_counts()
+            sh["width"] = float(grid_width())  # 그리드 선 굵기는 실제 이미지 픽셀 기준
             st["sel"] = sh
         doc.shapes.append(sh)
         doc.redo.clear()
@@ -1338,7 +1348,7 @@ def main():
                         tool_widths=dict(tool_widths, **{st["tool"]: int(width_var.get())}),
                         text_size=int(tsize_var.get()),
                         text_stroke=bool(stroke_var.get()), out_dir=out_var.get().strip(),
-                        grid_cols=get_counts()[0], grid_rows=get_counts()[1],
+                        grid_cols=get_counts()[0], grid_rows=get_counts()[1], grid_width=grid_width(),
                         geometry=root.geometry())
         save_settings(settings)
 
@@ -1357,12 +1367,25 @@ def main():
         width_lbl.config(text="%dpx" % width_var.get())
         apply_style_to_grid()
 
+    last_gw = [max(1, min(50, int(gw_var.get())))]
+
+    def grid_width():
+        """그리드 선 굵기 입력칸 (잘못 입력하면 마지막 올바른 값)"""
+        try:
+            v = int(str(gw_var.get()).strip())
+            if not 1 <= v <= 50:
+                raise ValueError
+            last_gw[0] = v
+        except Exception:
+            gw_var.set(last_gw[0])
+        return last_gw[0]
+
     def apply_style_to_grid():
         """그리드 도구에서 선택한 그리드가 있으면 지금 색/굵기/투명도를 그 그리드에 적용"""
         doc, sh = cur(), st["sel"]
         if not doc or st["tool"] != "grid" or sh is None or not any(x is sh for x in visible(doc)):
             return
-        new = dict(sh, color=list(hex_to_rgb(st["color"])), width=max(1.0, float(width_var.get()) / st["scale"]),
+        new = dict(sh, color=list(hex_to_rgb(st["color"])), width=float(grid_width()),
                    alpha=int(round(alpha_var.get() * 2.55)))
         if (new["color"], round(new["width"], 3), new["alpha"]) != (list(sh["color"]), round(sh["width"], 3), sh["alpha"]):
             st["sel"] = replace_shape(doc, sh, new)
