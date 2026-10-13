@@ -26,7 +26,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 APP_NAME = "Guide Maker"
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "guidemaker-v"
@@ -520,13 +520,16 @@ def _label(img, text, size):
 def compare_image(orig, guide, layout="h", divider=True, labels=False, min_label=14):
     """원본과 가이드를 붙인 한 장. layout: "h" 좌우 / "v" 위아래"""
     W, H = orig.size
+    # 구분선은 두 이미지 이음매 위에 그림 (붙인 이미지 크기 / 비율은 구분선과 상관없이 같음)
     gap = max(2, int(round(min(W, H) * 0.004))) if divider else 0
     if layout == "v":
-        out = Image.new("RGBA", (W, H * 2 + gap), (255, 255, 255, 255))
-        pos2 = (0, H + gap)
+        out = Image.new("RGBA", (W, H * 2), (255, 255, 255, 255))
+        pos2 = (0, H)
+        line = (0, H - gap // 2, W, H - gap // 2 + gap)
     else:
-        out = Image.new("RGBA", (W * 2 + gap, H), (255, 255, 255, 255))
-        pos2 = (W + gap, 0)
+        out = Image.new("RGBA", (W * 2, H), (255, 255, 255, 255))
+        pos2 = (W, 0)
+        line = (W - gap // 2, 0, W - gap // 2 + gap, H)
     a, b = orig.copy(), guide.copy()
     if labels:
         size = max(min_label, int(round(min(W, H) * 0.035)))
@@ -534,6 +537,8 @@ def compare_image(orig, guide, layout="h", divider=True, labels=False, min_label
         _label(b, "가이드", size)
     out.alpha_composite(a, dest=(0, 0))
     out.alpha_composite(b, dest=pos2)
+    if gap:
+        ImageDraw.Draw(out).rectangle([line[0], line[1], line[2] - 1, line[3] - 1], fill=(255, 255, 255, 255))
     return out
 
 
@@ -807,7 +812,7 @@ def help_text(mac=None):
    - [이미지 불러오기] (한 장 / 여러 장),  [폴더 불러오기]
    - 이미지 파일이나 폴더를 창에 끌어다 놓아도 됩니다
    - 지원: jpg, png, tif, bmp, webp, tga  (EXR 은 지원 안 함)
-   - ◀ ▶ 버튼이나 ← → 키로 이미지 넘기기
+   - 화면 아래 가운데 ◀ ▶ 버튼이나 ← → 키로 이미지 넘기기
 
 2. 화면
    - 왼쪽 = 원본,  오른쪽 = 가이드를 그리는 곳
@@ -851,6 +856,7 @@ def help_text(mac=None):
        원본 + 가이드 붙이기  shot_0010_compare.png  (원본과 가이드를 한 장에)
        둘 다                 두 파일 모두
      붙일 때: 좌우 / 위아래,  구분선 켜기 / 끄기,  이름표(원본 / 가이드) 켜기 / 끄기
+     (구분선은 두 이미지 사이 이음매 위에 그려져서, 켜도 끄도 이미지 크기와 비율은 같음)
    - 오른쪽 [미리보기] 칸에 지금 설정으로 저장될 모습이 작게 보입니다
    - 모두 원본 해상도 그대로 저장
    - 화면의 손잡이, 선택 테두리 같은 표시는 저장되지 않습니다
@@ -995,12 +1001,6 @@ def main():
     ttk.Button(g, text="폴더 불러오기", command=lambda: open_folder()).pack(side="left", padx=(4, 0))
 
     g = top.group()
-    ttk.Button(g, text="◀", width=3, command=lambda: go(-1)).pack(side="left")
-    nav_lbl = ttk.Label(g, text="이미지 없음", width=26, anchor="center")
-    nav_lbl.pack(side="left", padx=4)
-    ttk.Button(g, text="▶", width=3, command=lambda: go(1)).pack(side="left")
-
-    g = top.group()
     tool_var = tk.StringVar(value=st["tool"])
     for i, (k, label) in enumerate(TOOLS):
         ttk.Radiobutton(g, text=label, value=k, variable=tool_var,
@@ -1109,28 +1109,40 @@ def main():
     g = opt.group()
     ttk.Label(g, text="내보내기").pack(side="left")
     mode_var = tk.StringVar(value=settings.get("export_mode", "guide"))
+
+    def label_radio(parent, text, value, var, command):
+        """글자 다음에 선택 동그라미: 가이드만 ○ (글자를 눌러도 선택)"""
+        lbl = ttk.Label(parent, text=text, cursor="hand2")
+        lbl.pack(side="left", padx=(12, 2))
+        rb = ttk.Radiobutton(parent, text="", value=value, variable=var, command=command)
+        rb.pack(side="left")
+
+        def click(e):
+            if "disabled" not in rb.state():
+                var.set(value)
+                command()
+        lbl.bind("<Button-1>", click)
+        return [lbl, rb]
+
     for val, label in (("guide", "가이드만"), ("compare", "원본 + 가이드 붙이기"), ("both", "둘 다")):
-        ttk.Radiobutton(g, text=label, value=val, variable=mode_var,
-                        command=lambda: update_export_opts()).pack(side="left", padx=(8, 0))
+        label_radio(g, label, val, mode_var, lambda: update_export_opts())
     g = opt.group()
     ttk.Label(g, text="배치").pack(side="left")
     layout_var = tk.StringVar(value=settings.get("export_layout", "h"))
-    layout_rbs = [ttk.Radiobutton(g, text=t, value=v, variable=layout_var) for v, t in (("h", "좌우"), ("v", "위아래"))]
-    for rb in layout_rbs:
-        rb.pack(side="left", padx=(6, 0))
+    layout_rbs = []
+    for v, t in (("h", "좌우"), ("v", "위아래")):
+        layout_rbs += label_radio(g, t, v, layout_var, lambda: update_preview())
     divider_var = tk.BooleanVar(value=bool(settings.get("export_divider", True)))
     labels_var = tk.BooleanVar(value=bool(settings.get("export_labels", False)))
     divider_cb = ttk.Checkbutton(g, text="구분선", variable=divider_var)
     divider_cb.pack(side="left", padx=(12, 0))
     labels_cb = ttk.Checkbutton(g, text="이름표 (원본 / 가이드)", variable=labels_var)
     labels_cb.pack(side="left", padx=(8, 0))
-    for rb in layout_rbs:
-        rb.config(command=lambda: update_preview())
     divider_cb.config(command=lambda: update_preview())
     labels_cb.config(command=lambda: update_preview())
     g = opt.group()
     ttk.Label(g, text="미리보기", foreground="#888").pack(side="left", anchor="n", padx=(0, 6))
-    PV_W, PV_H = 330, 74
+    PV_W, PV_H = 560, 140
     preview = tk.Canvas(g, width=PV_W, height=PV_H, highlightthickness=1, highlightbackground="#bbb",
                         bg="#3a3d44", bd=0)
     preview.pack(side="left")
@@ -1170,7 +1182,7 @@ def main():
         if mode in ("compare", "both"):
             # 붙인 모습은 미리보기 크기로 바로 만들어야 이름표 글씨가 보임
             lay, div = layout_var.get(), bool(divider_var.get())
-            gap = 2 if div else 0
+            gap = 0  # 구분선은 이음매 위에 그려지므로 크기 계산에 안 넣음
             ow, oh = o.size
             if lay == "v":
                 ph_ = max(4, (cell_h - gap) // 2)
@@ -1183,7 +1195,7 @@ def main():
                 if ph_ > cell_h:
                     ph_, pw_ = cell_h, max(4, int(ow * cell_h / float(oh)))
             so, sg = o.resize((pw_, ph_), Image.LANCZOS), gimg.resize((pw_, ph_), Image.LANCZOS)
-            items.append((compare_image(so, sg, lay, div, bool(labels_var.get()), min_label=8), "_compare"))
+            items.append((compare_image(so, sg, lay, div, bool(labels_var.get()), min_label=10), "_compare"))
         preview.delete("all")
         pv["photos"] = []
         x = 8
@@ -1193,7 +1205,7 @@ def main():
             pv["photos"].append(ph)
             cx = x + cell_w // 2
             preview.create_image(cx, 4 + (PV_H - 22) // 2, image=ph)
-            preview.create_text(cx, PV_H - 9, text="이름" + cap, fill="#d8dce2", font=("TkDefaultFont", 8))
+            preview.create_text(cx, PV_H - 9, text="이름" + cap, fill="#d8dce2", font=("TkDefaultFont", 9))
             x += cell_w + 8
 
     def update_export_opts():
@@ -1226,6 +1238,14 @@ def main():
     help_btn.create_oval(2, 2, 22, 22, fill="#3b6fd8", outline="#3b6fd8")
     help_btn.create_text(12, 12, text="?", fill="#ffffff", font=("TkDefaultFont", 11, "bold"))
     help_btn.pack(side="right")
+    navf = ttk.Frame(root, padding=(8, 4, 8, 0))   # 이미지 넘기기: 화면 바로 아래 가운데
+    navf.pack(side="bottom", fill="x")
+    navc = ttk.Frame(navf)
+    navc.pack(anchor="center")
+    ttk.Button(navc, text="◀", width=3, command=lambda: go(-1)).pack(side="left")
+    nav_lbl = ttk.Label(navc, text="이미지 없음", width=34, anchor="center")
+    nav_lbl.pack(side="left", padx=6)
+    ttk.Button(navc, text="▶", width=3, command=lambda: go(1)).pack(side="left")
     panes.pack(fill="both", expand=True, padx=8)   # 아래 막대를 먼저 자리잡게 한 뒤 나머지를 화면에
 
     # ---------- 도움말 ----------
