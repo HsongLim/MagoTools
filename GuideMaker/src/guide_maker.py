@@ -26,7 +26,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 APP_NAME = "Guide Maker"
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "guidemaker-v"
@@ -517,7 +517,7 @@ def _label(img, text, size):
            stroke_width=max(1, size // 14), stroke_fill=(0, 0, 0, 255))
 
 
-def compare_image(orig, guide, layout="h", divider=True, labels=False):
+def compare_image(orig, guide, layout="h", divider=True, labels=False, min_label=14):
     """원본과 가이드를 붙인 한 장. layout: "h" 좌우 / "v" 위아래"""
     W, H = orig.size
     gap = max(2, int(round(min(W, H) * 0.004))) if divider else 0
@@ -529,7 +529,7 @@ def compare_image(orig, guide, layout="h", divider=True, labels=False):
         pos2 = (W + gap, 0)
     a, b = orig.copy(), guide.copy()
     if labels:
-        size = max(14, int(round(min(W, H) * 0.035)))
+        size = max(min_label, int(round(min(W, H) * 0.035)))
         _label(a, "원본", size)
         _label(b, "가이드", size)
     out.alpha_composite(a, dest=(0, 0))
@@ -607,31 +607,65 @@ def _proxy_reachable(proxy, timeout=1.5):
         return False
 
 
-def _http_opener():
+def _ssl_handler():
     import ssl
     import urllib.request
-    handlers = []
-    if STUDIO_PROXY and _proxy_reachable(STUDIO_PROXY):
-        handlers.append(urllib.request.ProxyHandler({"http": "http://" + STUDIO_PROXY,
-                                                     "https": "http://" + STUDIO_PROXY}))
-    ctx = None
     try:
         cafile = os.environ.get("SSL_CERT_FILE")
         if not (cafile and os.path.isfile(cafile)):
             import certifi  # 맥 앱 안의 파이썬은 인증서 목록이 없을 수 있어서 같이 넣음
             cafile = certifi.where()
-        ctx = ssl.create_default_context(cafile=cafile)
+        return urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=cafile))
     except Exception:
-        pass
-    if ctx is not None:
-        handlers.append(urllib.request.HTTPSHandler(context=ctx))
+        return None
+
+
+def _routes():
+    """인터넷에 나가는 길 후보: 회사 프록시 -> 컴퓨터 기본 설정 -> 프록시 없이 바로"""
+    out = []
+    if STUDIO_PROXY and _proxy_reachable(STUDIO_PROXY):
+        out.append("studio")
+    out += ["system", "direct"]
+    if _route_ok and _route_ok[0] in out:  # 지난번에 된 길을 먼저
+        out.remove(_route_ok[0])
+        out.insert(0, _route_ok[0])
+    return out
+
+
+_route_ok = []
+
+
+def _http_opener(route="system"):
+    import urllib.request
+    handlers = []
+    if route == "studio":
+        handlers.append(urllib.request.ProxyHandler({"http": "http://" + STUDIO_PROXY,
+                                                     "https": "http://" + STUDIO_PROXY}))
+    elif route == "direct":
+        handlers.append(urllib.request.ProxyHandler({}))  # 프록시 설정 무시
+    h = _ssl_handler()
+    if h is not None:
+        handlers.append(h)
     return urllib.request.build_opener(*handlers)
 
 
 def _get(url, accept="application/vnd.github+json", timeout=10):
+    """회사 프록시가 GitHub 을 막는 경우(403 등)가 있어서, 안 되면 다른 길로 다시 시도"""
     import urllib.request
-    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "GuideMaker/" + APP_VERSION})
-    return _http_opener().open(req, timeout=timeout)
+    import urllib.error
+    errors = []
+    for route in _routes():
+        # 요청은 매번 새로 (프록시를 한 번 거친 요청 객체는 그 프록시 정보가 남음)
+        req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "GuideMaker/" + APP_VERSION})
+        try:
+            resp = _http_opener(route).open(req, timeout=timeout)
+            _route_ok[:] = [route]
+            return resp
+        except urllib.error.HTTPError:
+            raise  # GitHub 까지는 닿았고 GitHub 이 답한 오류 (다른 길로 가도 같음)
+        except Exception as e:  # 프록시 거부(Tunnel ... 403), 연결 시간 초과 등: 다음 길로
+            errors.append("%s: %s" % (route, e))
+    raise RuntimeError("GitHub 에 연결할 수 없습니다.\n" + "\n".join(errors))
 
 
 def pick_release_asset(assets, is_win=None, is_mac=None, arch=None):
@@ -817,11 +851,13 @@ def help_text(mac=None):
        원본 + 가이드 붙이기  shot_0010_compare.png  (원본과 가이드를 한 장에)
        둘 다                 두 파일 모두
      붙일 때: 좌우 / 위아래,  구분선 켜기 / 끄기,  이름표(원본 / 가이드) 켜기 / 끄기
+   - 오른쪽 [미리보기] 칸에 지금 설정으로 저장될 모습이 작게 보입니다
    - 모두 원본 해상도 그대로 저장
    - 화면의 손잡이, 선택 테두리 같은 표시는 저장되지 않습니다
 
 7. 업데이트
    - 켤 때 새 버전이 있으면 창이 뜹니다. [예] 를 누르면 받아서 설치하고 다시 켜집니다
+   - 회사 프록시가 GitHub 을 막으면 컴퓨터 기본 인터넷 설정 / 바로 연결로 다시 시도합니다
    - 오른쪽 위 [업데이트 확인] 으로 직접 확인할 수도 있습니다
 
 단축키
@@ -1088,15 +1124,83 @@ def main():
     divider_cb.pack(side="left", padx=(12, 0))
     labels_cb = ttk.Checkbutton(g, text="이름표 (원본 / 가이드)", variable=labels_var)
     labels_cb.pack(side="left", padx=(8, 0))
-    name_lbl = ttk.Label(opt.group(), foreground="#888")
-    name_lbl.pack(side="left")
+    for rb in layout_rbs:
+        rb.config(command=lambda: update_preview())
+    divider_cb.config(command=lambda: update_preview())
+    labels_cb.config(command=lambda: update_preview())
+    g = opt.group()
+    ttk.Label(g, text="미리보기", foreground="#888").pack(side="left", anchor="n", padx=(0, 6))
+    PV_W, PV_H = 330, 74
+    preview = tk.Canvas(g, width=PV_W, height=PV_H, highlightthickness=1, highlightbackground="#bbb",
+                        bg="#3a3d44", bd=0)
+    preview.pack(side="left")
+    pv = {"photos": []}
+
+    def demo_images():
+        """이미지를 안 불러왔을 때 보여줄 예시 (회색 화면 + 빨간 박스)"""
+        o = Image.new("RGBA", (320, 180), (110, 120, 135, 255))
+        d = ImageDraw.Draw(o)
+        d.ellipse([110, 40, 210, 140], fill=(150, 160, 175, 255))
+        gimg = o.copy()
+        ImageDraw.Draw(gimg).rectangle([90, 30, 230, 150], outline=(255, 42, 42, 255), width=8)
+        return o, gimg
+
+    def fit_thumb(img, w, h):
+        im = img.copy()
+        im.thumbnail((w, h), Image.LANCZOS)
+        return im
+
+    def update_preview():
+        """내보내기 결과를 작게 보여줌: 가이드만 / 붙인 것 / 둘 다"""
+        doc = cur()
+        if doc is not None:
+            iw, ih = doc.size
+            s_ = min(320.0 / iw, 180.0 / ih)
+            size = (max(1, int(iw * s_)), max(1, int(ih * s_)))
+            o = base_scaled(doc, size)
+            gimg = composite(o, doc.shapes, s_)
+        else:
+            o, gimg = demo_images()
+        mode = mode_var.get()
+        items = []
+        if mode in ("guide", "both"):
+            items.append((gimg, "_guide"))
+        n = 2 if mode == "both" else 1
+        cell_w, cell_h = (PV_W - 8 * (n + 1)) // n, PV_H - 22
+        if mode in ("compare", "both"):
+            # 붙인 모습은 미리보기 크기로 바로 만들어야 이름표 글씨가 보임
+            lay, div = layout_var.get(), bool(divider_var.get())
+            gap = 2 if div else 0
+            ow, oh = o.size
+            if lay == "v":
+                ph_ = max(4, (cell_h - gap) // 2)
+                pw_ = max(4, int(ow * ph_ / float(oh)))
+                if pw_ > cell_w:
+                    pw_, ph_ = cell_w, max(4, int(oh * cell_w / float(ow)))
+            else:
+                pw_ = max(4, (cell_w - gap) // 2)
+                ph_ = max(4, int(oh * pw_ / float(ow)))
+                if ph_ > cell_h:
+                    ph_, pw_ = cell_h, max(4, int(ow * cell_h / float(oh)))
+            so, sg = o.resize((pw_, ph_), Image.LANCZOS), gimg.resize((pw_, ph_), Image.LANCZOS)
+            items.append((compare_image(so, sg, lay, div, bool(labels_var.get()), min_label=8), "_compare"))
+        preview.delete("all")
+        pv["photos"] = []
+        x = 8
+        for img, cap in items:
+            th = fit_thumb(img, cell_w, cell_h)
+            ph = ImageTk.PhotoImage(th)
+            pv["photos"].append(ph)
+            cx = x + cell_w // 2
+            preview.create_image(cx, 4 + (PV_H - 22) // 2, image=ph)
+            preview.create_text(cx, PV_H - 9, text="이름" + cap, fill="#d8dce2", font=("TkDefaultFont", 8))
+            x += cell_w + 8
 
     def update_export_opts():
         on = mode_var.get() != "guide"
         for w in layout_rbs + [divider_cb, labels_cb]:
             w.state(["!disabled"] if on else ["disabled"])
-        name_lbl.config(text={"guide": "→ 이름_guide", "compare": "→ 이름_compare",
-                              "both": "→ 이름_guide + 이름_compare"}[mode_var.get()])
+        update_preview()
         root.after_idle(opt.layout)
 
     bot = ttk.Frame(bottom, padding=(8, 4, 8, 4))
@@ -1368,6 +1472,8 @@ def main():
             x0, y0, x1, y1 = canvas_bounds(hv, max(4, hv.get("width", 1) * s / 2 + 3))
             # 점선 + 굵은 선은 윈도우에서 안 그려질 수 있어서 실선
             canvas_r.create_rectangle(x0, y0, x1, y1, outline="#ff5050", width=2)
+        if not st["op"] and not st["drawing"]:  # 끄는 중에는 미리보기는 놓을 때만
+            update_preview()
         canvas_r.create_text(8, 8, anchor="nw", fill="#8a9099",
                              text="%d×%d  가이드 %d개" % (doc.size[0], doc.size[1], len(visible(doc))))
 
