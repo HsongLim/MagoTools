@@ -26,7 +26,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 APP_NAME = "Guide Maker"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "guidemaker-v"
@@ -556,6 +556,7 @@ def main():
             pass
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox, colorchooser
+    from tkinter import font as tkfont
     from PIL import ImageTk
 
     settings = load_settings()
@@ -591,6 +592,9 @@ def main():
         "edit": None,         # 그리드 코너/이동 편집 중
         "sel": None,          # 선택한 그리드 (도형 객체)
         "pending": False,
+        "tedit": None,        # 글자 입력 중
+        "tsel": None,         # 선택한 글자
+        "tdrag": None,        # 글자 이동/크기 조절 중
     }
 
     # ---------- 도구 막대 ----------
@@ -611,8 +615,8 @@ def main():
                         command=lambda: set_tool(tool_var.get())).pack(side="left", padx=1)
     ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
     ttk.Label(bar, text="그리드 칸  가로").pack(side="left")
-    cols_var = tk.IntVar(value=int(settings.get("grid_cols", 4)))
-    rows_var = tk.IntVar(value=int(settings.get("grid_rows", 4)))
+    cols_var = tk.IntVar(value=int(settings.get("grid_cols", 10)))
+    rows_var = tk.IntVar(value=int(settings.get("grid_rows", 10)))
     cols_sp = ttk.Spinbox(bar, from_=1, to=64, width=4, textvariable=cols_var, command=lambda: grid_count_changed())
     cols_sp.pack(side="left", padx=(4, 6))
     ttk.Label(bar, text="세로").pack(side="left")
@@ -637,14 +641,25 @@ def main():
     ttk.Label(bar2, text="    투명도").pack(side="left")
     alpha_var = tk.IntVar(value=int(settings.get("opacity", 100)))
     alpha_lbl = ttk.Label(bar2, width=5)
-    ttk.Scale(bar2, from_=5, to=100, variable=alpha_var, length=120,
-              command=lambda v: alpha_lbl.config(text="%d%%" % float(v))).pack(side="left", padx=4)
+    alpha_scale = ttk.Scale(bar2, from_=5, to=100, variable=alpha_var, length=120,
+                            command=lambda v: alpha_lbl.config(text="%d%%" % float(v)))
+    alpha_scale.pack(side="left", padx=4)
+    alpha_scale.bind("<ButtonRelease-1>", lambda e: root.after_idle(apply_style_to_grid))
     alpha_lbl.pack(side="left")
     ttk.Label(bar2, text="  굵기").pack(side="left")
-    width_var = tk.IntVar(value=int(settings.get("width", 6)))
+    # 굵기는 도구마다 따로 기억 (그리드는 기본 얇게)
+    tool_widths = dict(settings.get("tool_widths") or {})
+    TOOL_DEFAULT_WIDTH = {"grid": 2}
+
+    def tool_width(t):
+        return int(tool_widths.get(t, TOOL_DEFAULT_WIDTH.get(t, settings.get("width", 6))))
+
+    width_var = tk.IntVar(value=tool_width(st["tool"]))
     width_lbl = ttk.Label(bar2, width=5)
-    ttk.Scale(bar2, from_=1, to=60, variable=width_var, length=120,
-              command=lambda v: width_lbl.config(text="%dpx" % float(v))).pack(side="left", padx=4)
+    width_scale = ttk.Scale(bar2, from_=1, to=60, variable=width_var, length=120,
+                            command=lambda v: width_lbl.config(text="%dpx" % float(v)))
+    width_scale.pack(side="left", padx=4)
+    width_scale.bind("<ButtonRelease-1>", lambda e: root.after_idle(apply_style_to_grid))
     width_lbl.pack(side="left")
     ttk.Label(bar2, text="  글자 크기").pack(side="left")
     tsize_var = tk.IntVar(value=int(settings.get("text_size", 32)))
@@ -699,6 +714,12 @@ def main():
         status.config(text=t)
 
     def set_tool(t):
+        if t != "text":
+            finish_text_edit()
+        if t != st["tool"]:
+            tool_widths[st["tool"]] = int(width_var.get())
+            width_var.set(tool_width(t))
+            width_lbl.config(text="%dpx" % width_var.get())
         st["tool"] = t
         tool_var.set(t)
         if cur():
@@ -707,6 +728,19 @@ def main():
     def set_color(c):
         st["color"] = c
         color_btn.config(bg=c, activebackground=c)
+        ted = st.get("tedit")
+        if ted:
+            ted["style"]["color"] = list(hex_to_rgb(c))
+            ted["w"].config(fg=c, insertbackground=c, highlightcolor=c, highlightbackground=c)
+            return
+        if st.get("tool") == "grid":
+            apply_style_to_grid()
+            return
+        doc, sel = cur(), st.get("tsel")
+        if doc and sel is not None and st.get("tool") == "text" and any(x is sel for x in visible(doc)) \
+                and list(sel["color"]) != list(hex_to_rgb(c)):
+            st["tsel"] = replace_shape(doc, sel, dict(sel, color=list(hex_to_rgb(c))))
+            refresh()
 
     def pick_color():
         c = colorchooser.askcolor(color=st["color"], parent=root, title="가이드 색")
@@ -754,6 +788,7 @@ def main():
             add_docs(paths)
 
     def go(step):
+        finish_text_edit()
         if st["docs"]:
             st["idx"] = (st["idx"] + step) % len(st["docs"])
             refresh()
@@ -797,8 +832,20 @@ def main():
         basel = base if sizel == size else base_scaled(doc, sizel)
         st["photo_l"] = ImageTk.PhotoImage(basel)
         canvas_l.create_image(offl[0], offl[1], anchor="nw", image=st["photo_l"])
-        st["photo_r"] = ImageTk.PhotoImage(composite(base, doc.shapes, s))
+        ted = st["tedit"]
+        shapes = doc.shapes if not (ted and ted["old"] is not None) else [x for x in doc.shapes if x is not ted["old"]]
+        st["photo_r"] = ImageTk.PhotoImage(composite(base, shapes, s))
         canvas_r.create_image(off[0], off[1], anchor="nw", image=st["photo_r"])
+        if ted and ted["doc"] is doc:
+            ted["font"].configure(size=-editor_px(ted["style"]["size"]))
+            cx, cy = to_canvas(ted["p"])
+            ted["win"] = canvas_r.create_window(cx, cy, anchor="nw", window=ted["w"])
+            fit_editor()
+        sel = st["tsel"]
+        if st["tool"] == "text" and not ted and sel is not None and any(x is sel for x in visible(doc)):
+            x0, y0, x1, y1 = text_canvas_bbox(sel)
+            canvas_r.create_rectangle(x0, y0, x1, y1, outline="#ffffff", dash=(4, 3))
+            canvas_r.create_rectangle(x1 - 6, y1 - 6, x1 + 6, y1 + 6, outline="#000000", fill="#ffffff")
         if st["tool"] == "grid":  # 그리드 코너 손잡이
             for sh in visible(doc):
                 if sh["type"] != "grid":
@@ -826,93 +873,130 @@ def main():
         s, (ox, oy) = st["scale"], st["off"]
         return (p[0] * s + ox, p[1] * s + oy)
 
-    def ask_text(initial="", title="글자 넣기"):
-        """여러 줄 입력 창. 넣기 -> 문자열, 취소 -> None"""
-        dlg = tk.Toplevel(root)
-        dlg.title(title)
-        dlg.transient(root)
-        dlg.resizable(True, True)
-        res = {"v": None}
-        frm = ttk.Frame(dlg, padding=10)
-        frm.pack(fill="both", expand=True)
-        ttk.Label(frm, text="넣을 글자 (여러 줄 가능)").pack(anchor="w")
-        txt = tk.Text(frm, width=40, height=4, wrap="word", undo=True)
-        txt.pack(fill="both", expand=True, pady=6)
-        txt.insert("1.0", initial)
-        txt.tag_add("sel", "1.0", "end-1c")
-        btns = ttk.Frame(frm)
-        btns.pack(fill="x")
+    # ---------- 글자: 이미지 위에서 바로 입력 ----------
+    fams = set(tkfont.families(root))
+    ui_family = next((f for f in ("Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "AppleGothic",
+                                  "Noto Sans CJK KR", "NanumGothic") if f in fams), "TkDefaultFont")
 
-        def ok(*_):
-            res["v"] = txt.get("1.0", "end-1c")
-            dlg.destroy()
-            return "break"
+    def text_canvas_bbox(sh):
+        x0, y0, x1, y1 = text_bbox(sh, st["scale"])
+        ox, oy = st["off"]
+        return x0 + ox, y0 + oy, x1 + ox, y1 + oy
 
-        def cancel(*_):
-            dlg.destroy()
-            return "break"
-
-        okmod = "Command" if IS_MAC else "Control"
-        ttk.Label(btns, text="%s+Enter: 넣기   Esc: 취소" % ("Cmd" if IS_MAC else "Ctrl"),
-                  foreground="#888").pack(side="left")
-        ttk.Button(btns, text="취소", command=cancel).pack(side="right")
-        ttk.Button(btns, text="넣기", command=ok).pack(side="right", padx=6)
-        txt.bind("<%s-Return>" % okmod, ok)
-        dlg.bind("<Escape>", cancel)
-        dlg.protocol("WM_DELETE_WINDOW", cancel)
-        dlg.update_idletasks()
-        dw, dh = dlg.winfo_reqwidth(), dlg.winfo_reqheight()
-        sw, sh_ = root.winfo_screenwidth(), root.winfo_screenheight()
-        x = root.winfo_pointerx() - dw // 2
-        y = root.winfo_pointery() + 20
-        if y + dh > sh_ - 60:  # 화면 아래로 넘치면 마우스 위쪽에
-            y = root.winfo_pointery() - dh - 40
-        dlg.geometry("+%d+%d" % (max(0, min(x, sw - dw - 10)), max(0, y)))
-        txt.focus_set()
-        try:
-            dlg.grab_set()
-        except Exception:
-            pass
-        root.wait_window(dlg)
-        return res["v"]
-
-    def text_at(doc, p):
-        """p(원본 좌표) 위에 있는 글자 도형 번호 (맨 위 것), 없으면 None"""
-        for i in range(len(doc.shapes) - 1, -1, -1):
-            sh = doc.shapes[i]
-            if sh["type"] == "text" and not sh.get("_deleted"):
-                x0, y0, x1, y1 = text_bbox(sh, 1.0)
-                if x0 <= p[0] <= x1 and y0 <= p[1] <= y1:
-                    return i
+    def text_hit(doc, ev):
+        """누른 곳: ("size", 도형) 크기 손잡이 / ("move", 도형) 글자 위 / None"""
+        sel = st["tsel"]
+        if sel is not None and any(x is sel for x in visible(doc)):
+            x0, y0, x1, y1 = text_canvas_bbox(sel)
+            if abs(ev.x - x1) <= 9 and abs(ev.y - y1) <= 9:
+                return "size", sel
+        for sh in reversed(visible(doc)):
+            if sh["type"] == "text":
+                x0, y0, x1, y1 = text_canvas_bbox(sh)
+                if x0 <= ev.x <= x1 and y0 <= ev.y <= y1:
+                    return "move", sh
         return None
 
-    def place_text(doc, p):
-        i = text_at(doc, p)
-        if i is not None:  # 이미 있는 글자를 누르면 고치기
-            old = doc.shapes[i]
-            s = ask_text(old["text"], "글자 고치기 (모두 지우면 삭제)")
-            if s is None or s == old["text"]:
-                return
-            new = dict(old, text=s, _replaced=(i, old))
-            del doc.shapes[i]
-            if s.strip():
-                doc.shapes.append(new)
+    def editor_px(size):
+        return max(6, int(round(size * st["scale"])))
+
+    def fit_editor(*_):
+        ted = st["tedit"]
+        if not ted or ted.get("win") is None:
+            return
+        f = ted["font"]
+        lines = ted["w"].get("1.0", "end-1c").split("\n")
+        wpx = max([f.measure(l) for l in lines] + [f.measure("W")]) + f.measure("WW")
+        hpx = f.metrics("linespace") * len(lines) + 6
+        canvas_r.itemconfig(ted["win"], width=wpx, height=hpx)
+
+    def start_text_edit(doc, p, old=None):
+        finish_text_edit()
+        if old is not None:
+            style = {k: old[k] for k in ("color", "alpha", "size", "stroke")}
+        else:
+            style = {"color": list(hex_to_rgb(st["color"])), "alpha": int(round(alpha_var.get() * 2.55)),
+                     "size": max(4.0, float(tsize_var.get()) / st["scale"]), "stroke": bool(stroke_var.get())}
+        fg = "#%02x%02x%02x" % tuple(style["color"])
+        try:  # 입력칸 배경은 밑에 있는 이미지 색으로 (눈에 덜 띄게)
+            px = doc.image.getpixel((min(int(p[0]), doc.size[0] - 1), min(int(p[1]), doc.size[1] - 1)))
+            bgc = "#%02x%02x%02x" % tuple(px[:3])
+        except Exception:
+            bgc = "#2a2d33"
+        f = tkfont.Font(root, family=ui_family, size=-editor_px(style["size"]), weight="bold")
+        w = tk.Text(canvas_r, bd=0, relief="flat", padx=2, pady=0, wrap="none", undo=True, font=f,
+                    fg=fg, insertbackground=fg, insertwidth=2, bg=bgc, highlightthickness=1,
+                    highlightcolor=fg, highlightbackground=fg, selectbackground="#3b6fd8")
+        if old is not None:
+            w.insert("1.0", old["text"])
+            w.tag_add("sel", "1.0", "end-1c")
+            w.mark_set("insert", "end-1c")
+        st["tedit"] = {"w": w, "p": tuple(p), "old": old, "style": style, "font": f, "doc": doc, "win": None}
+        st["tsel"] = None
+        mod_ = "Command" if IS_MAC else "Control"
+        w.bind("<KeyRelease>", fit_editor)
+        w.bind("<Escape>", lambda e: (finish_text_edit(), "break")[1])
+        w.bind("<%s-Return>" % mod_, lambda e: (finish_text_edit(), "break")[1])
+        refresh()
+        w.focus_set()
+        set_status("글자 입력 중…  다른 곳을 클릭하거나 Esc / %s+Enter 로 끝내기" % ("Cmd" if IS_MAC else "Ctrl"))
+
+    def finish_text_edit():
+        ted = st["tedit"]
+        if not ted:
+            return
+        st["tedit"] = None
+        text = ted["w"].get("1.0", "end-1c").rstrip("\n")
+        try:
+            ted["w"].destroy()
+        except Exception:
+            pass
+        doc, old = ted["doc"], ted["old"]
+        if old is not None:
+            if not any(x is old for x in doc.shapes):
+                pass
+            elif not text.strip():
+                replace_shape(doc, old, dict(old, _deleted=True))  # 되돌리기용 기록 (그리지 않음)
+                set_status("글자 삭제")
+            elif text != old["text"]:
+                st["tsel"] = replace_shape(doc, old, dict(old, text=text))
                 set_status("글자 고침")
             else:
-                new["_deleted"] = True  # 되돌리기용 표시만 (그리지 않음)
-                doc.shapes.append(new)
-                set_status("글자 삭제")
-        else:
-            s = ask_text()
-            if not s or not s.strip():
-                return
-            doc.shapes.append({"type": "text", "text": s, "pts": [p], "color": list(hex_to_rgb(st["color"])),
-                               "alpha": int(round(alpha_var.get() * 2.55)),
-                               "size": max(4.0, float(tsize_var.get()) / st["scale"]),
-                               "stroke": bool(stroke_var.get()), "width": 1.0})
-            set_status("글자 추가 (가이드 %d개)" % len(visible(doc)))
-        doc.redo.clear()
+                st["tsel"] = old
+        elif text.strip():
+            sh = dict(ted["style"], type="text", text=text, pts=[ted["p"]], width=1.0)
+            doc.shapes.append(sh)
+            doc.redo.clear()
+            st["tsel"] = sh
+            set_status("글자 추가 (가이드 %d개)  끌어서 이동 / 오른쪽 아래 손잡이로 크기 / 두 번 클릭해서 고치기"
+                       % len(visible(doc)))
         refresh()
+        try:
+            canvas_r.focus_set()
+        except Exception:
+            pass
+
+    def on_double(ev):
+        doc = cur()
+        if not doc or st["tool"] != "text":
+            return
+        hit = text_hit(doc, ev)
+        if hit:
+            st["tdrag"] = None
+            start_text_edit(doc, hit[1]["pts"][0], old=hit[1])
+
+    def on_motion(ev):
+        doc = cur()
+        cursor = "crosshair"
+        if doc and st["tool"] == "text" and not st["tdrag"]:
+            hit = text_hit(doc, ev)
+            cursor = "xterm" if not hit else ("fleur" if hit[0] == "move" else
+                                               ("size_nw_se" if IS_WIN else "bottom_right_corner"))
+        elif doc and st["tool"] == "grid" and not st["edit"]:
+            hit = grid_hit(doc, ev)
+            cursor = "crosshair" if not hit or hit[0] == "corner" else "fleur"
+        if str(canvas_r.cget("cursor")) != cursor:
+            canvas_r.config(cursor=cursor)
 
     last_counts = [max(1, min(64, int(cols_var.get()))), max(1, min(64, int(rows_var.get())))]
 
@@ -984,7 +1068,22 @@ def main():
         p = to_img(ev)
         if st["tool"] == "text":
             st["drawing"] = None
-            place_text(doc, p)
+            if st["tedit"]:  # 입력 중에 다른 곳을 누르면 입력 끝
+                finish_text_edit()
+                return
+            hit = text_hit(doc, ev)
+            if hit:
+                kind, sh = hit
+                st["tsel"] = sh
+                work = dict(sh, pts=[tuple(sh["pts"][0])])
+                i = next(n for n, x in enumerate(doc.shapes) if x is sh)
+                doc.shapes[i] = work
+                st["tdrag"] = {"kind": kind, "orig": sh, "work": work, "start": (ev.x, ev.y),
+                               "p0": tuple(sh["pts"][0]), "size0": sh["size"], "bbox0": text_canvas_bbox(sh)}
+                refresh()
+                return
+            st["tsel"] = None
+            start_text_edit(doc, p)
             return
         if st["tool"] == "grid":
             hit = grid_hit(doc, ev)
@@ -1008,6 +1107,20 @@ def main():
         st["temp_items"] = []
 
     def on_drag(ev):
+        td = st["tdrag"]
+        if td:
+            s_ = st["scale"]
+            if td["kind"] == "move":
+                dx, dy = (ev.x - td["start"][0]) / s_, (ev.y - td["start"][1]) / s_
+                td["work"]["pts"] = [(td["p0"][0] + dx, td["p0"][1] + dy)]
+            else:  # 왼쪽 위는 그대로 두고 오른쪽 아래 손잡이까지의 거리로 크기 조절
+                x0, y0 = td["bbox0"][0], td["bbox0"][1]
+                d0 = math.hypot(td["start"][0] - x0, td["start"][1] - y0) or 1.0
+                d = math.hypot(ev.x - x0, ev.y - y0)
+                td["work"]["size"] = max(4.0 / s_, td["size0"] * d / d0)
+            st["tsel"] = td["work"]
+            refresh_soon()
+            return
         ed = st["edit"]
         if ed:
             # 코너는 이미지 밖으로도 조금 나갈 수 있게 (원근 맞출 때 필요)
@@ -1061,6 +1174,24 @@ def main():
             st["temp_items"] = items
 
     def on_release(ev):
+        td = st["tdrag"]
+        if td:
+            st["tdrag"] = None
+            doc = cur()
+            work, orig = td["work"], td["orig"]
+            i = next((n for n, x in enumerate(doc.shapes) if x is work), None)
+            if i is None:
+                return
+            doc.shapes[i] = orig
+            if work["pts"] == [tuple(orig["pts"][0])] and work["size"] == orig["size"]:
+                st["tsel"] = orig
+            else:
+                st["tsel"] = replace_shape(doc, orig, work)
+                tsize_var.set(int(round(work["size"] * st["scale"])))
+                tsize_lbl.config(text="%dpx" % tsize_var.get())
+                set_status("글자 %s" % ("이동" if td["kind"] == "move" else "크기 조절"))
+            refresh()
+            return
         ed = st["edit"]
         if ed:
             st["edit"] = None
@@ -1145,6 +1276,7 @@ def main():
                 pass
 
     def export(all_docs):
+        finish_text_edit()
         if not st["docs"]:
             messagebox.showinfo(APP_NAME, "불러온 이미지가 없습니다.", parent=root)
             return
@@ -1202,13 +1334,16 @@ def main():
 
     def save_ui_settings():
         settings.update(tool=st["tool"], color=st["color"], opacity=int(alpha_var.get()),
-                        width=int(width_var.get()), text_size=int(tsize_var.get()),
+                        width=int(tool_widths.get("pen", width_var.get()) if st["tool"] != "pen" else width_var.get()),
+                        tool_widths=dict(tool_widths, **{st["tool"]: int(width_var.get())}),
+                        text_size=int(tsize_var.get()),
                         text_stroke=bool(stroke_var.get()), out_dir=out_var.get().strip(),
                         grid_cols=get_counts()[0], grid_rows=get_counts()[1],
                         geometry=root.geometry())
         save_settings(settings)
 
     def on_close():
+        finish_text_edit()
         save_ui_settings()
         unsaved = [d for d in st["docs"] if visible(d)]
         if unsaved and not messagebox.askyesno(
@@ -1220,6 +1355,19 @@ def main():
     def change_width(d):
         width_var.set(max(1, min(60, int(width_var.get()) + d)))
         width_lbl.config(text="%dpx" % width_var.get())
+        apply_style_to_grid()
+
+    def apply_style_to_grid():
+        """그리드 도구에서 선택한 그리드가 있으면 지금 색/굵기/투명도를 그 그리드에 적용"""
+        doc, sh = cur(), st["sel"]
+        if not doc or st["tool"] != "grid" or sh is None or not any(x is sh for x in visible(doc)):
+            return
+        new = dict(sh, color=list(hex_to_rgb(st["color"])), width=max(1.0, float(width_var.get()) / st["scale"]),
+                   alpha=int(round(alpha_var.get() * 2.55)))
+        if (new["color"], round(new["width"], 3), new["alpha"]) != (list(sh["color"]), round(sh["width"], 3), sh["alpha"]):
+            st["sel"] = replace_shape(doc, sh, new)
+            refresh()
+            set_status("선택한 그리드 색/굵기 바꿈")
 
     # ---------- 업데이트 ----------
     q = queue.Queue()
@@ -1355,6 +1503,8 @@ def main():
     canvas_r.bind("<ButtonPress-1>", on_press)
     canvas_r.bind("<B1-Motion>", on_drag)
     canvas_r.bind("<ButtonRelease-1>", on_release)
+    canvas_r.bind("<Double-Button-1>", on_double)
+    canvas_r.bind("<Motion>", on_motion)
     for c in (canvas_l, canvas_r):
         c.bind("<Configure>", lambda e: root.after_idle(refresh))
     mod = "Command" if IS_MAC else "Control"
