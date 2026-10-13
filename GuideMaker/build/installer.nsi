@@ -7,6 +7,7 @@
   Unicode true
 !endif
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 
 !ifndef VERSION
   !define VERSION "1.0.0"
@@ -45,15 +46,25 @@ VIAddVersionKey /LANG=${LANG_KOREAN} "FileDescription" "${APPNAME} 설치"
 VIAddVersionKey /LANG=${LANG_KOREAN} "LegalCopyright" "Studio Mago"
 
 Section "Install"
-  ; 실행 중이면 업데이트가 덮어쓸 수 있게 잠시 기다렸다가 강제 종료
+  ; 실행 중이면 업데이트가 덮어쓸 수 있게 종료시키고, 실행 파일이 풀릴 때까지 기다림 (최대 약 15초)
   nsExec::Exec 'taskkill /F /IM GuideMaker.exe'
-  Sleep 800
+  StrCpy $R2 0
+  unlock_retry:
+    ClearErrors
+    IfFileExists "$INSTDIR\GuideMaker.exe" 0 unlocked
+    Delete "$INSTDIR\GuideMaker.exe"
+    IfFileExists "$INSTDIR\GuideMaker.exe" 0 unlocked
+    IntOp $R2 $R2 + 1
+    IntCmp $R2 30 unlocked
+    Sleep 500
+    nsExec::Exec 'taskkill /F /IM GuideMaker.exe'
+    Goto unlock_retry
+  unlocked:
 
   SetOutPath "$INSTDIR"
   File "${SRC}\GuideMaker.exe"
   File "${SRC}\GuideMaker.ico"
   File "${SRC}\README.txt"
-  ; 설정 파일은 이미 있으면 사용자가 고친 걸 유지
 
   SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
@@ -74,6 +85,16 @@ Section "Install"
   WriteRegDWORD HKCU "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINSTKEY}" "NoRepair" 1
 SectionEnd
+
+; 앱 안 업데이트: 조용히 설치(/S)한 뒤 /RELAUNCH 가 있으면 앱을 다시 켬
+Function .onInstSuccess
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/RELAUNCH" $R1
+  IfErrors done
+    Exec '"$INSTDIR\GuideMaker.exe"'
+  done:
+FunctionEnd
 
 Section "Uninstall"
   nsExec::Exec 'taskkill /F /IM GuideMaker.exe'

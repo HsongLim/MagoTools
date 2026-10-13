@@ -20,13 +20,13 @@ trap 'rm -rf "$WORK"' EXIT
 
 $PY -m venv "$WORK/venv"
 source "$WORK/venv/bin/activate"
-pip install -q --upgrade pip pyinstaller pillow
+pip install -q --upgrade pip pyinstaller pillow tkinterdnd2 certifi
 
 pyinstaller --noconfirm --clean --windowed --name GuideMaker \
   --distpath "$WORK/dist" --workpath "$WORK/build" --specpath "$WORK" \
   --icon "$ROOT/assets/GuideMaker.png" \
   --osx-bundle-identifier com.studiomago.guidemaker \
-  src/guide_maker.py
+  --collect-all tkinterdnd2 src/guide_maker.py
 
 APP="$WORK/dist/GuideMaker.app"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "$APP/Contents/Info.plist" 2>/dev/null || true

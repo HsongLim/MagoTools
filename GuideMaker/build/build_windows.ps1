@@ -9,7 +9,7 @@ $Root = (Get-Location).Path
 $ver = (Select-String -Path src\guide_maker.py -Pattern '^APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
 Write-Host "Guide Maker $ver 빌드 (Windows)"
 
-python -m pip install -q --upgrade pip pyinstaller pillow
+python -m pip install -q --upgrade pip pyinstaller pillow tkinterdnd2 certifi
 
 $work = Join-Path $env:TEMP ("gm_build_" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force $work | Out-Null
@@ -17,7 +17,7 @@ try {
   python -m PyInstaller --noconfirm --clean --onefile --windowed --name GuideMaker `
     --distpath "$work\dist" --workpath "$work\build" --specpath "$work" `
     --icon "$Root\assets\GuideMaker.ico" --add-data "$Root\assets\GuideMaker.ico;." `
-    src\guide_maker.py
+    --collect-all tkinterdnd2 src\guide_maker.py
   if ($LASTEXITCODE -ne 0) { throw "PyInstaller 실패" }
 
   $p = "$work\payload"
