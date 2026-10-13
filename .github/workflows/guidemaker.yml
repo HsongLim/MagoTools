@@ -35,7 +35,15 @@ jobs:
       - name: NSIS
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
+          # 설치 서버가 가끔 응답이 없어서 몇 번 다시 시도
+          for ($i = 1; $i -le 4; $i++) {
+            if ((Get-Command makensis -ErrorAction SilentlyContinue) -or (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { break }
+            choco install nsis -y --no-progress
+            if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { Start-Sleep -Seconds (20 * $i) }
+          }
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") -and -not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            winget install --id NSIS.NSIS -e --silent --accept-package-agreements --accept-source-agreements
+          }
       - name: Build
         shell: pwsh
         run: ./GuideMaker/build/build_windows.ps1
