@@ -1,6 +1,11 @@
 ; Guide Maker 윈도우 설치 프로그램 (NSIS)
 ; makensis -DVERSION=1.0.0 -DSRC=<payload 폴더> -DOUT=<출력 exe> installer.nsi
-Target amd64-unicode
+; 공식 윈도우용 NSIS 에는 64비트 stub 이 없어서 기본(32비트 유니코드)으로 빌드. 64비트 stub 이 있는 환경이면 -DAMD64
+!ifdef AMD64
+  Target amd64-unicode
+!else
+  Unicode true
+!endif
 !include "MUI2.nsh"
 
 !ifndef VERSION
