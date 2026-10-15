@@ -4,8 +4,8 @@ Shot Picker
 -----------
 AI 로 뽑은 이미지가 잔뜩 든 폴더를 열면 파일 이름 앞의 샷 이름으로 묶어서 샷별로 보여 준다.
 샷마다 썸네일을 보면서 마음에 드는 것만 골라(pick) 저장하면
-  저장폴더/pick/      <- 고른 이미지
-  저장폴더/not_pick/  <- 안 고른 이미지
+  이미지폴더/pick/      <- 고른 이미지
+  이미지폴더/not_pick/  <- 안 고른 이미지
 로 복사한다 (원본은 그대로). 원본 플레이트 폴더를 정해 주면 같은 샷의 원본을 켰다 껐다 하며 비교할 수 있다.
 """
 import os
@@ -439,9 +439,8 @@ AI 로 뽑은 이미지가 많을 때, 샷별로 모아 보면서 마음에 드�
  1. 이미지 폴더: 뽑은 이미지를 다 넣은 폴더 (하위 폴더까지 다 찾음). 창에 폴더를 끌어다 놓아도 됨
  2. (선택) 원본 플레이트 폴더: 같은 샷 이름으로 시작하는 원본 이미지가 있는 폴더
       Plate Exporter 로 받은 폴더를 그대로 쓰면 됩니다 (start_frame / first 이미지를 먼저 씀)
- 3. 저장 폴더: 비워 두면 이미지 폴더 안에 만듭니다
- 4. 왼쪽에서 샷을 고르고, 가운데 썸네일을 클릭해서 고르기(초록 테두리 + PICK)
- 5. "저장" -> 저장폴더/pick (고른 것) , 저장폴더/not_pick (안 고른 것) 으로 복사
+ 3. 왼쪽에서 샷을 고르고, 가운데 썸네일을 클릭해서 고르기(초록 테두리 + PICK)
+ 4. "저장" -> 이미지 폴더 안에 pick (고른 것) , not_pick (안 고른 것) 폴더를 만들어 복사
       - 원본 이미지는 그대로 둡니다 (복사만)
       - 고른 게 하나도 없는 샷은 아직 안 본 샷으로 보고 건너뜁니다
         ("고른 게 없는 샷도 not_pick 으로" 를 켜면 같이 넣음)
@@ -514,7 +513,6 @@ def main():
     top.pack(fill="x")
     src_var = tk.StringVar(value=settings.get("src", ""))
     plate_var = tk.StringVar(value=settings.get("plate", ""))
-    out_var = tk.StringVar(value=settings.get("out", ""))
     parts_var = tk.IntVar(value=int(settings.get("parts", 3)))
 
     def path_row(r, label, var, hint):
@@ -532,12 +530,11 @@ def main():
             if var is src_var or var is plate_var:
                 load_folder()
 
-    src_e = path_row(0, "이미지 폴더", src_var, "AI 로 뽑은 이미지 (하위 폴더 포함)")
+    src_e = path_row(0, "이미지 폴더", src_var, "AI 이미지 폴더 - 저장하면 이 안에 pick / not_pick 이 생김")
     path_row(1, "원본 플레이트", plate_var, "(선택) 같은 샷 이름의 원본 이미지 폴더")
-    path_row(2, "저장 폴더", out_var, "비우면 이미지 폴더 안에 pick / not_pick")
     top.columnconfigure(1, weight=1)
     r4 = ttk.Frame(top)
-    r4.grid(row=3, column=0, columnspan=4, sticky="we", pady=(4, 0))
+    r4.grid(row=2, column=0, columnspan=4, sticky="we", pady=(4, 0))
     ttk.Button(r4, text="불러오기 / 새로고침", command=lambda: load_folder()).pack(side="left")
     ttk.Label(r4, text="   샷 이름 = 파일 이름 앞").pack(side="left")
     sp = ttk.Spinbox(r4, from_=1, to=8, width=3, textvariable=parts_var, command=lambda: load_folder())
@@ -601,7 +598,7 @@ def main():
     save_btn.pack(side="left")
     empty_var = tk.BooleanVar(value=bool(settings.get("include_empty", False)))
     ttk.Checkbutton(bot, text="고른 게 없는 샷도 not_pick 으로", variable=empty_var).pack(side="left", padx=12)
-    ttk.Button(bot, text="저장 폴더 열기", command=lambda: open_folder(out_dir()) if os.path.isdir(out_dir()) else None
+    ttk.Button(bot, text="이미지 폴더 열기", command=lambda: open_folder(out_dir()) if os.path.isdir(out_dir()) else None
                ).pack(side="left")
     prog = ttk.Progressbar(bot, length=180, mode="determinate")
     prog.pack(side="left", padx=10)
@@ -612,8 +609,8 @@ def main():
         status.config(text=t)
 
     def out_dir():
-        o = out_var.get().strip().strip('"')
-        return o or src_var.get().strip().strip('"')
+        """저장은 항상 이미지 폴더 안 (pick / not_pick)"""
+        return st["folder"] or src_var.get().strip().strip('"')
 
     # =====================================================================
     # 불러오기 / 기억
@@ -627,7 +624,7 @@ def main():
         allp = settings.setdefault("picks", {})
         rel = sorted(os.path.relpath(p, st["folder"]) for s in st["picks"].values() for p in s)
         allp[picks_key(st["folder"])] = rel
-        settings.update(src=src_var.get(), plate=plate_var.get(), out=out_var.get(), parts=parts_var.get(),
+        settings.update(src=src_var.get(), plate=plate_var.get(), parts=parts_var.get(),
                         show_orig=orig_var.get(), thumb=size_var.get(), include_empty=empty_var.get())
         save_settings(settings)
 
@@ -651,8 +648,7 @@ def main():
             parts = 3
         if st["folder"]:
             remember_picks()
-        od = out_dir()
-        skip = [os.path.join(od, PICK_DIR), os.path.join(od, NOPICK_DIR)]
+        skip = [os.path.join(folder, PICK_DIR), os.path.join(folder, NOPICK_DIR)]  # 저장한 결과는 다시 안 읽음
         set_status("이미지 찾는 중…")
         root.update_idletasks()
         paths = scan_images(folder, skip)
@@ -1135,7 +1131,7 @@ def main():
             messagebox.showinfo(APP_NAME, "고른 이미지가 없습니다.\n썸네일을 클릭해서 고른 뒤 저장하세요.", parent=root)
             return
         npick = sum(1 for _, d, _ in plan if os.path.basename(os.path.dirname(d)) == PICK_DIR)
-        msg = ("저장할까요?\n\n  pick      %d장\n  not_pick  %d장\n\n저장 폴더: %s"
+        msg = ("저장할까요?\n\n  pick      %d장\n  not_pick  %d장\n\n저장 위치: %s 안의 pick / not_pick"
                % (npick, len(plan) - npick, od))
         if skipped:
             msg += "\n\n고른 게 없어서 건너뛰는 샷 %d개: %s%s" % (
@@ -1225,7 +1221,7 @@ def main():
                     st["busy"] = False
                     save_btn.config(state="normal")
                     set_status("저장 완료: pick %d장, not_pick %d장 (새로 복사 %d, 정리 %d)" % (npk, nno, c, r))
-                    if messagebox.askyesno(APP_NAME, "저장했습니다.\n\npick %d장 / not_pick %d장\n\n저장 폴더를 열까요?"
+                    if messagebox.askyesno(APP_NAME, "저장했습니다.\n\npick %d장 / not_pick %d장\n\n폴더를 열까요?"
                                            % (npk, nno), parent=root):
                         open_folder(od)
                 elif kind == "save_err":
