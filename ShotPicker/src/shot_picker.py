@@ -24,7 +24,7 @@ import subprocess
 from PIL import Image, ImageOps
 
 APP_NAME = "Shot Picker"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "shotpicker-v"
@@ -451,10 +451,11 @@ AI 로 뽑은 이미지가 많을 때, 같은 샷끼리 크게 보면서 마음�
 
 크게 보기 (기본 화면)
   ← → / 휠                이전 / 다음 이미지 (아래 줄을 클릭해도 됨)
+  ↓ / ↑                   다음 / 이전 샷
   클릭 / 스페이스 / P     고르기 켜고 끄기
   O                       원본 나란히 보기 켜고 끄기 (왼쪽 원본, 오른쪽 AI)
   F                       원본으로 바꿔 보기 (같은 자리에서 원본 <-> AI 깜빡이며 비교)
-  [ / ]  (PageUp / Down)  이전 / 다음 샷
+  [ / ]  (PageUp / Down)  이전 / 다음 샷 (↑ ↓ 와 같음)
   G                       썸네일 모아 보기 <-> 크게 보기
   {m}+S                     저장
 
@@ -1002,7 +1003,7 @@ def main():
         canvas.create_text(10, 6, anchor="nw", fill=PICK if picked else "#dddddd", font=("TkDefaultFont", 11, "bold"),
                            text="%s%d / %d   %s" % ("✓ PICK   " if picked else "", n, len(ais), os.path.basename(p)))
         canvas.create_text(W - 10, 6, anchor="ne", fill="#888888",
-                           text="← → / 휠 이동   클릭·스페이스 고르기   O 원본 나란히   F 원본으로 바꿔 보기   G 모아 보기")
+                           text="← → 이미지   ↓ ↑ 샷   클릭·스페이스 고르기   O 원본 나란히   F 원본으로 바꿔 보기   G 모아 보기")
 
     def toggle_view(on=None):
         if not st["tiles"]:
@@ -1199,10 +1200,14 @@ def main():
             toggle_view()
             return "break"
         if st["mode"] == "view":
-            if ks in ("Left", "Up"):
+            if ks == "Left":
                 view_step(-1)
-            elif ks in ("Right", "Down"):
+            elif ks == "Right":
                 view_step(1)
+            elif ks == "Down":      # ↓ = 다음 샷
+                go_shot(1)
+            elif ks == "Up":        # ↑ = 이전 샷
+                go_shot(-1)
             elif ks in ("space",) or letter == "p":
                 toggle_pick(st["tiles"][st["focus"]][1])
                 draw_view()
