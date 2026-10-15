@@ -24,7 +24,7 @@ import subprocess
 from PIL import Image, ImageOps
 
 APP_NAME = "Shot Picker"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 # 업데이트 확인: 이 저장소의 Releases 중 태그가 TAG_PREFIX 로 시작하는 것
 GH_REPO = "HsongLim/MagoTools"
 TAG_PREFIX = "shotpicker-v"
@@ -397,9 +397,9 @@ def apply_update(installer):
 # ============================================================================
 # 단축키 (한글 입력 상태에서도 되게: 영문 글자가 안 오면 한글 자모나 키 위치로 알아봄)
 # ============================================================================
-_HANGUL_KEYS = {"ㅐ": "o", "ㄹ": "f", "ㄴ": "s", "ㅁ": "a", "ㅔ": "p"}
-_WIN_VK = {79: "o", 70: "f", 83: "s", 65: "a", 80: "p"}
-_MAC_VK = {31: "o", 3: "f", 1: "s", 0: "a", 35: "p"}
+_HANGUL_KEYS = {"ㅐ": "o", "ㄹ": "f", "ㄴ": "s", "ㅁ": "a", "ㅔ": "p", "ㅎ": "g"}
+_WIN_VK = {79: "o", 70: "f", 83: "s", 65: "a", 80: "p", 71: "g"}
+_MAC_VK = {31: "o", 3: "f", 1: "s", 0: "a", 35: "p", 5: "g"}
 
 
 def shortcut_letter(keysym, char, keycode, mac=None):
@@ -428,7 +428,7 @@ def help_text(mac=None):
     m = "Cmd" if mac else "Ctrl"
     return """Shot Picker v{ver} 사용법
 ========================
-AI 로 뽑은 이미지가 많을 때, 샷별로 모아 보면서 마음에 드는 것만 골라 따로 모으는 툴입니다.
+AI 로 뽑은 이미지가 많을 때, 같은 샷끼리 크게 보면서 마음에 드는 것만 골라 따로 모으는 툴입니다.
 
 준비
   - 이미지 파일 이름 맨 앞에 샷 이름을 넣어 주세요.   예) EP01_S048_9040_v003_0012.png
@@ -436,32 +436,32 @@ AI 로 뽑은 이미지가 많을 때, 샷별로 모아 보면서 마음에 드�
     샷 이름 모양이 다르면 위쪽 "샷 이름 = 앞 [3] 조각" 숫자를 바꾸세요.
 
 순서
- 1. 이미지 폴더: 뽑은 이미지를 다 넣은 폴더 (하위 폴더까지 다 찾음). 창에 폴더를 끌어다 놓아도 됨
+ 1. 이미지 폴더: "폴더 추가..." 로 여러 개 넣을 수 있음 (창에 폴더 여러 개를 끌어다 놓아도 됨)
+      이미지가 여러 폴더에 흩어져 있어도 샷 이름이 같으면 한 샷으로 모아서 보여 줍니다 (하위 폴더까지 찾음)
  2. (선택) 원본 플레이트 폴더: 같은 샷 이름으로 시작하는 원본 이미지가 있는 폴더
       Plate Exporter 로 받은 폴더를 그대로 쓰면 됩니다 (start_frame / first 이미지를 먼저 씀)
- 3. 왼쪽에서 샷을 고르고, 가운데 썸네일을 클릭해서 고르기(초록 테두리 + PICK)
- 4. "저장" -> 이미지 폴더 안에 pick (고른 것) , not_pick (안 고른 것) 폴더를 만들어 복사
-      - 원본 이미지는 그대로 둡니다 (복사만)
+ 3. 왼쪽에서 샷을 고르면 이미지가 크게 나오고, 아래 줄에 같은 샷 이미지들이 보입니다
+      ← → (또는 휠) 로 넘기면서 이미지를 클릭(또는 스페이스)하면 고르기 (초록 테두리 + PICK)
+ 4. "저장" -> 첫 번째 이미지 폴더 안에 pick (고른 것) , not_pick (안 고른 것) 폴더를 만들어 복사
+      - 원본 이미지는 그대로 둡니다 (복사만). 다른 폴더에 있던 이미지도 같은 pick / not_pick 으로 모음
       - 고른 게 하나도 없는 샷은 아직 안 본 샷으로 보고 건너뜁니다
         ("고른 게 없는 샷도 not_pick 으로" 를 켜면 같이 넣음)
       - 다시 저장하면 바뀐 것만 반영 (고르기를 취소한 이미지는 pick 에서 not_pick 으로 옮겨짐)
   고른 내용은 자동으로 기억해서, 껐다 켜도 그대로입니다.
 
-썸네일 화면
-  클릭 / 스페이스         고르기 켜고 끄기
-  더블클릭 / Enter        크게 보기
-  ← → ↑ ↓               이동
-  [ / ]  (PageUp / Down)  이전 / 다음 샷
-  O                       원본 플레이트 보기 켜고 끄기 (썸네일 맨 앞에 ORIGINAL)
-  {m} + 휠 / 크기 막대       썸네일 크기
-  {m}+S                     저장
-
-크게 보기
-  ← →                     이전 / 다음 이미지
-  스페이스 / P            고르기 켜고 끄기
+크게 보기 (기본 화면)
+  ← → / 휠                이전 / 다음 이미지 (아래 줄을 클릭해도 됨)
+  클릭 / 스페이스 / P     고르기 켜고 끄기
   O                       원본 나란히 보기 켜고 끄기 (왼쪽 원본, 오른쪽 AI)
   F                       원본으로 바꿔 보기 (같은 자리에서 원본 <-> AI 깜빡이며 비교)
-  Esc / Enter / 더블클릭  썸네일로 돌아가기
+  [ / ]  (PageUp / Down)  이전 / 다음 샷
+  G                       썸네일 모아 보기 <-> 크게 보기
+  {m}+S                     저장
+
+썸네일 모아 보기 (G)
+  클릭 / 스페이스         고르기 켜고 끄기
+  더블클릭 / Enter        그 이미지 크게 보기
+  ← → ↑ ↓               이동,   {m} + 휠 / 크기 막대  썸네일 크기
 """.format(ver=APP_VERSION, m=m)
 
 
@@ -502,8 +502,8 @@ def main():
 
     st = {
         "groups": {}, "shots": [], "shot": None, "picks": {}, "plates": {},
-        "tiles": [], "focus": 0, "mode": "grid", "view": 0, "flip": False,
-        "thumbs": {}, "wanted": set(), "photo": None, "busy": False, "folder": None,
+        "tiles": [], "focus": 0, "mode": settings.get("mode", "view"), "flip": False,
+        "thumbs": {}, "wanted": set(), "busy": False, "folder": None, "folders": [], "loaded": set(),
     }
     q = queue.Queue()
     thumb_q = queue.LifoQueue()
@@ -511,27 +511,57 @@ def main():
     # ---- 위: 폴더 ----
     top = ttk.Frame(root, padding=(8, 6, 8, 2))
     top.pack(fill="x")
-    src_var = tk.StringVar(value=settings.get("src", ""))
+    srcs = [d for d in (settings.get("srcs") or ([settings["src"]] if settings.get("src") else [])) if d]
     plate_var = tk.StringVar(value=settings.get("plate", ""))
     parts_var = tk.IntVar(value=int(settings.get("parts", 3)))
 
-    def path_row(r, label, var, hint):
-        ttk.Label(top, text=label).grid(row=r, column=0, sticky="w", pady=2)
-        e = ttk.Entry(top, textvariable=var)
-        e.grid(row=r, column=1, sticky="we", padx=6)
-        ttk.Button(top, text="찾기...", command=lambda: browse(var)).grid(row=r, column=2)
-        ttk.Label(top, text=hint, foreground="#888888").grid(row=r, column=3, sticky="w", padx=6)
-        return e
+    ttk.Label(top, text="이미지 폴더").grid(row=0, column=0, sticky="nw", pady=2)
+    src_list = tk.Listbox(top, height=3, activestyle="none", exportselection=False, selectmode="extended")
+    src_list.grid(row=0, column=1, sticky="we", padx=6, pady=2)
+    for d in srcs:
+        src_list.insert("end", d)
+    sbtn = ttk.Frame(top)
+    sbtn.grid(row=0, column=2, sticky="n")
+    ttk.Button(sbtn, text="폴더 추가...", command=lambda: add_folder()).pack(fill="x")
+    ttk.Button(sbtn, text="선택한 폴더 빼기", command=lambda: remove_folders()).pack(fill="x", pady=2)
+    ttk.Label(top, text="여러 폴더 가능 (끌어다 놓아도 됨)\n저장은 첫 번째 폴더 안 pick / not_pick",
+              foreground="#888888", justify="left").grid(row=0, column=3, sticky="nw", padx=6)
 
-    def browse(var):
-        d = filedialog.askdirectory(parent=root, initialdir=var.get() or src_var.get() or os.path.expanduser("~"))
+    def folder_list():
+        return [src_list.get(i) for i in range(src_list.size())]
+
+    def add_folders(paths):
+        have = {norm(d) for d in folder_list()}
+        added = False
+        for d in paths:
+            if d and os.path.isdir(d) and norm(d) not in have:
+                src_list.insert("end", d)
+                have.add(norm(d))
+                added = True
+        if added:
+            load_folder()
+
+    def add_folder():
+        cur = folder_list()
+        d = filedialog.askdirectory(parent=root, initialdir=(os.path.dirname(cur[-1]) if cur else os.path.expanduser("~")))
         if d:
-            var.set(d)
-            if var is src_var or var is plate_var:
-                load_folder()
+            add_folders([d])
 
-    src_e = path_row(0, "이미지 폴더", src_var, "AI 이미지 폴더 - 저장하면 이 안에 pick / not_pick 이 생김")
-    path_row(1, "원본 플레이트", plate_var, "(선택) 같은 샷 이름의 원본 이미지 폴더")
+    def remove_folders():
+        for i in reversed(src_list.curselection()):
+            src_list.delete(i)
+        load_folder()
+
+    ttk.Label(top, text="원본 플레이트").grid(row=1, column=0, sticky="w", pady=2)
+    ttk.Entry(top, textvariable=plate_var).grid(row=1, column=1, sticky="we", padx=6)
+
+    def browse_plate():
+        d = filedialog.askdirectory(parent=root, initialdir=plate_var.get() or os.path.expanduser("~"))
+        if d:
+            plate_var.set(d)
+            load_folder()
+    ttk.Button(top, text="찾기...", command=browse_plate).grid(row=1, column=2, sticky="we")
+    ttk.Label(top, text="(선택) 같은 샷 이름의 원본 이미지 폴더", foreground="#888888").grid(row=1, column=3, sticky="w", padx=6)
     top.columnconfigure(1, weight=1)
     r4 = ttk.Frame(top)
     r4.grid(row=2, column=0, columnspan=4, sticky="we", pady=(4, 0))
@@ -571,7 +601,7 @@ def main():
     bar.pack(fill="x")
     shot_lbl = ttk.Label(bar, text="", font=("TkDefaultFont", 11, "bold"))
     shot_lbl.pack(side="left")
-    orig_var = tk.BooleanVar(value=bool(settings.get("show_orig", True)))
+    orig_var = tk.BooleanVar(value=bool(settings.get("show_orig2", False)))  # 처음엔 AI 이미지만 크게
     ttk.Checkbutton(bar, text="원본 보기 (O)", variable=orig_var, command=lambda: on_orig()).pack(side="left", padx=14)
     ttk.Button(bar, text="이 샷 전부 고르기", command=lambda: pick_all(True)).pack(side="left")
     ttk.Button(bar, text="이 샷 고르기 해제", command=lambda: pick_all(False)).pack(side="left", padx=4)
@@ -580,8 +610,17 @@ def main():
     size_scale = ttk.Scale(bar, from_=140, to=520, variable=size_var, length=160,
                            command=lambda v: root.after_idle(on_size))
     size_scale.pack(side="right", padx=4)
-    view_btn = ttk.Button(bar, text="크게 보기 (Enter)", command=lambda: toggle_view())
+    view_btn = ttk.Button(bar, text="썸네일 모아 보기 (G)", command=lambda: toggle_view())
     view_btn.pack(side="right", padx=8)
+    # 크게 보기 아래 썸네일 줄 (같은 샷 이미지들)
+    SW, SH = 150, 84
+    stripf = ttk.Frame(right)
+    strip = tk.Canvas(stripf, bg="#151515", height=SH + 30, highlightthickness=0)
+    strip_sb = ttk.Scrollbar(stripf, orient="horizontal", command=strip.xview)
+    strip.configure(xscrollcommand=strip_sb.set)
+    strip.pack(fill="x")
+    strip_sb.pack(fill="x")
+    stripf.pack(side="bottom", fill="x")
     cwrap = ttk.Frame(right)
     cwrap.pack(fill="both", expand=True)
     canvas = tk.Canvas(cwrap, bg=BG, highlightthickness=0, takefocus=1)
@@ -609,23 +648,29 @@ def main():
         status.config(text=t)
 
     def out_dir():
-        """저장은 항상 이미지 폴더 안 (pick / not_pick)"""
-        return st["folder"] or src_var.get().strip().strip('"')
+        """저장은 첫 번째 이미지 폴더 안 (pick / not_pick)"""
+        f = folder_list()
+        return st["folder"] or (f[0] if f else "")
 
     # =====================================================================
     # 불러오기 / 기억
     # =====================================================================
-    def picks_key(folder):
-        return norm(folder)
+    def picked_store():
+        """고른 이미지 = 전체 경로 목록 (폴더가 여러 개여도 한 곳에 기억)"""
+        if "picked" not in settings:
+            old = []
+            for folder, rels in (settings.get("picks") or {}).items():  # v1.0.0 기억 옮겨 오기
+                old += [norm(os.path.join(folder, r)) for r in rels]
+            settings["picked"] = sorted(set(old))
+        return settings["picked"]
 
     def remember_picks():
-        if not st["folder"]:
-            return
-        allp = settings.setdefault("picks", {})
-        rel = sorted(os.path.relpath(p, st["folder"]) for s in st["picks"].values() for p in s)
-        allp[picks_key(st["folder"])] = rel
-        settings.update(src=src_var.get(), plate=plate_var.get(), parts=parts_var.get(),
-                        show_orig=orig_var.get(), thumb=size_var.get(), include_empty=empty_var.get())
+        keep = [p for p in picked_store() if p not in st["loaded"]]
+        cur = [norm(p) for v in st["picks"].values() for p in v]
+        settings["picked"] = sorted(set(keep) | set(cur))
+        settings.update(srcs=folder_list(), plate=plate_var.get(), parts=parts_var.get(),
+                        show_orig2=orig_var.get(), include_empty=empty_var.get())
+        settings.pop("src", None)
         save_settings(settings)
 
     save_job = [None]
@@ -636,43 +681,48 @@ def main():
         save_job[0] = root.after(800, remember_picks)
 
     def load_folder():
-        folder = src_var.get().strip().strip('"')
-        if not folder:
-            return
-        if not os.path.isdir(folder):
-            messagebox.showwarning(APP_NAME, "이미지 폴더가 없습니다:\n%s" % folder, parent=root)
-            return
+        folders = [d for d in folder_list() if d]
+        missing = [d for d in folders if not os.path.isdir(d)]
+        if missing:
+            messagebox.showwarning(APP_NAME, "없는 폴더가 있어서 빼고 불러옵니다:\n%s" % "\n".join(missing), parent=root)
+            folders = [d for d in folders if os.path.isdir(d)]
         try:
             parts = max(1, int(parts_var.get()))
         except Exception:
             parts = 3
-        if st["folder"]:
+        if st["loaded"]:
             remember_picks()
-        skip = [os.path.join(folder, PICK_DIR), os.path.join(folder, NOPICK_DIR)]  # 저장한 결과는 다시 안 읽음
+        dest = folders[0] if folders else None
+        skip = []
+        for d in folders:  # 저장한 결과(pick / not_pick)는 다시 안 읽음
+            skip += [os.path.join(d, PICK_DIR), os.path.join(d, NOPICK_DIR)]
         set_status("이미지 찾는 중…")
         root.update_idletasks()
-        paths = scan_images(folder, skip)
-        st["folder"] = folder
+        seen, paths = set(), []
+        for d in folders:
+            for p in scan_images(d, skip):
+                if norm(p) not in seen:  # 폴더가 겹쳐도 한 번만
+                    seen.add(norm(p))
+                    paths.append(p)
+        st["folder"], st["folders"], st["loaded"] = dest, folders, seen
         st["groups"] = group_by_shot(paths, parts)
         st["shots"] = list(st["groups"])
         st["plates"] = find_plates(plate_var.get().strip().strip('"'), parts)
-        saved = settings.get("picks", {}).get(picks_key(folder), [])
-        allset = {norm(p): p for p in paths}
+        saved = set(picked_store())
         st["picks"] = {}
-        for rel in saved:
-            p = allset.get(norm(os.path.join(folder, rel)))
-            if p:
+        for p in paths:
+            if norm(p) in saved:
                 st["picks"].setdefault(shot_of(p, parts), set()).add(p)
         if paths:
             ex = os.path.basename(paths[0])
             parts_hint.config(text="예) %s  ->  %s" % (ex, shot_of(ex, parts)))
         fill_shots()
-        n_plate = sum(1 for s in st["shots"] if s in st["plates"])
-        set_status("샷 %d개, 이미지 %d장%s" % (len(st["shots"]), len(paths),
+        n_plate = sum(1 for x in st["shots"] if x in st["plates"])
+        set_status("폴더 %d개, 샷 %d개, 이미지 %d장%s" % (len(folders), len(st["shots"]), len(paths),
                    (", 원본 있는 샷 %d개" % n_plate) if plate_var.get().strip() else ""))
         want = st["shot"] if st["shot"] in st["groups"] else (st["shots"][0] if st["shots"] else None)
         if want:
-            select_shot(want)
+            select_shot(want, keep=True)
         else:
             st["shot"] = None
             st["tiles"] = []
@@ -694,13 +744,16 @@ def main():
         shot_lbl.config(text="%s   %d장 중 %d장 고름   (전체 %d장)" % (
             s, len(st["groups"].get(s, ())), len(st["picks"].get(s, ())), total))
 
-    def select_shot(s):
+    def select_shot(s, keep=False):
         if s not in st["groups"]:
             return
+        cur = st["tiles"][st["focus"]] if (keep and st["tiles"] and st["focus"] < len(st["tiles"])) else None
         st["shot"] = s
-        st["focus"] = 0
-        st["mode"] = "grid"
         st["flip"] = False
+        st["tiles"] = tile_list()
+        # 크게 보기는 원본 칸이 아니라 첫 AI 이미지부터
+        st["focus"] = st["tiles"].index(cur) if cur in st["tiles"] else next(
+            (i for i, t in enumerate(st["tiles"]) if t[0] == "ai"), 0)
         if shot_tree.selection() != (s,):
             shot_tree.selection_set(s)
         shot_tree.see(s)
@@ -914,9 +967,9 @@ def main():
         canvas.yview_moveto(0)
         st["tiles"] = tile_list()
         ais = [i for i, t in enumerate(st["tiles"]) if t[0] == "ai"]
-        if not ais:
-            st["mode"] = "grid"
-            draw_grid()
+        if not ais:  # 아직 불러온 이미지가 없음 (모드는 그대로 둠)
+            canvas.create_text(20, 20, anchor="nw", fill="#888888",
+                               text="이미지 폴더를 추가하세요. (폴더 추가... 또는 창에 끌어다 놓기)" if not st["shots"] else "")
             return
         if st["tiles"][st["focus"]][0] != "ai":
             st["focus"] = ais[0]
@@ -949,7 +1002,7 @@ def main():
         canvas.create_text(10, 6, anchor="nw", fill=PICK if picked else "#dddddd", font=("TkDefaultFont", 11, "bold"),
                            text="%s%d / %d   %s" % ("✓ PICK   " if picked else "", n, len(ais), os.path.basename(p)))
         canvas.create_text(W - 10, 6, anchor="ne", fill="#888888",
-                           text="← → 이동   스페이스 고르기   O 원본 나란히   F 원본으로 바꿔 보기   Esc 돌아가기")
+                           text="← → / 휠 이동   클릭·스페이스 고르기   O 원본 나란히   F 원본으로 바꿔 보기   G 모아 보기")
 
     def toggle_view(on=None):
         if not st["tiles"]:
@@ -957,7 +1010,7 @@ def main():
         on = (st["mode"] != "view") if on is None else on
         st["mode"] = "view" if on else "grid"
         st["flip"] = False
-        view_btn.config(text="썸네일로 (Esc)" if on else "크게 보기 (Enter)")
+        settings["mode"] = st["mode"]
         redraw()
         if not on:
             root.after_idle(see_focus)
@@ -970,6 +1023,7 @@ def main():
         st["focus"] = ais[max(0, min(len(ais) - 1, k + d))]
         st["flip"] = False
         draw_view()
+        draw_strip()
 
     def on_orig():
         """원본 칸이 생기거나 빠져도 보고 있던 이미지가 그대로 보이게"""
@@ -977,21 +1031,91 @@ def main():
         st["tiles"] = tile_list()
         if cur in st["tiles"]:
             st["focus"] = st["tiles"].index(cur)
-        settings["show_orig"] = orig_var.get()
+        settings["show_orig2"] = orig_var.get()
         redraw()
         canvas.focus_set()
 
     def redraw():
         if st["mode"] == "view":
+            if not stripf.winfo_ismapped():
+                stripf.pack(side="bottom", fill="x", before=cwrap)
+            csb.pack_forget()
             draw_view()
+            draw_strip()
         else:
+            stripf.pack_forget()
+            if not csb.winfo_ismapped():
+                csb.pack(side="left", fill="y")
             draw_grid()
+        view_btn.config(text="크게 보기 (Enter)" if st["mode"] == "grid" else "썸네일 모아 보기 (G)")
+
+    # ---- 썸네일 줄 ----
+    def strip_x(i):
+        return 8 + i * (SW + 8)
+
+    def draw_strip_tile(i):
+        if i >= len(st["tiles"]):
+            return
+        kind, p = st["tiles"][i]
+        x, y = strip_x(i), 6
+        tg = ("s%d" % i,)
+        strip.delete("s%d" % i)
+        picked = kind == "ai" and is_picked(p)
+        focus = i == st["focus"]
+        strip.create_rectangle(x, y, x + SW, y + SH, fill=TILE_BG, outline="", tags=tg)
+        ph = st["thumbs"].get((p, SW, SH))
+        if ph is not None:
+            strip.create_image(x + SW // 2, y + SH // 2, image=ph, tags=tg)
+        else:
+            want_thumb(p, SW, SH)
+        col = ORIG if kind == "orig" else (PICK if picked else (FOCUS if focus else "#3a3a3a"))
+        strip.create_rectangle(x, y, x + SW, y + SH, outline=col, width=4 if (picked or kind == "orig" or focus) else 1,
+                               tags=tg)
+        if focus and (picked or kind == "orig"):
+            strip.create_rectangle(x + 5, y + 5, x + SW - 5, y + SH - 5, outline=FOCUS, width=2, tags=tg)
+        if kind == "orig":
+            strip.create_text(x + 6, y + 4, anchor="nw", text="ORIGINAL", fill=ORIG, font=("TkDefaultFont", 9, "bold"),
+                              tags=tg)
+        elif picked:
+            strip.create_rectangle(x + 4, y + 4, x + 44, y + 20, fill=PICK, outline="", tags=tg)
+            strip.create_text(x + 24, y + 12, text="PICK", fill="#000000", font=("TkDefaultFont", 9, "bold"), tags=tg)
+        n = sum(1 for t in st["tiles"][:i + 1] if t[0] == "ai")
+        strip.create_text(x + SW // 2, y + SH + 11, text=("원본" if kind == "orig" else str(n)),
+                          fill=ORIG if kind == "orig" else ("#ffffff" if focus else "#999999"), tags=tg)
+
+    def draw_strip():
+        strip.delete("all")
+        for i in range(len(st["tiles"])):
+            draw_strip_tile(i)
+        total = strip_x(len(st["tiles"])) + 8
+        strip.configure(scrollregion=(0, 0, max(total, strip.winfo_width()), SH + 30))
+        # 지금 보는 이미지가 줄 가운데쯤 보이게
+        if st["tiles"] and total > strip.winfo_width():
+            cx = strip_x(st["focus"]) + SW / 2.0 - strip.winfo_width() / 2.0
+            strip.xview_moveto(max(0.0, cx / total))
+
+    def on_strip_click(e):
+        i = int((strip.canvasx(e.x) - 8) // (SW + 8))
+        if 0 <= i < len(st["tiles"]) and st["tiles"][i][0] == "ai":
+            st["focus"] = i
+            st["flip"] = False
+            draw_view()
+            draw_strip()
+        canvas.focus_set()
+
+    strip.bind("<ButtonPress-1>", on_strip_click)
 
     # =====================================================================
     # 마우스 / 키보드
     # =====================================================================
     def on_click(e):
         canvas.focus_set()
+        if st["mode"] == "view":
+            if st["tiles"] and st["tiles"][st["focus"]][0] == "ai" and not st["flip"]:
+                toggle_pick(st["tiles"][st["focus"]][1])
+                draw_view()
+                draw_strip_tile(st["focus"])
+            return
         if st["mode"] != "grid":
             return
         i = tile_at(e.x, e.y)
@@ -1007,6 +1131,8 @@ def main():
 
     def on_double(e):
         if st["mode"] == "view":
+            if st["tiles"] and st["tiles"][st["focus"]][0] == "ai" and not st["flip"]:
+                toggle_pick(st["tiles"][st["focus"]][1])  # 첫 클릭에서 바뀐 고르기를 되돌림
             toggle_view(False)
             return
         i = tile_at(e.x, e.y)
@@ -1019,9 +1145,10 @@ def main():
             toggle_view(True)
 
     def on_wheel(e):
-        if st["mode"] != "grid":
-            return
         delta = e.delta if e.delta else (120 if getattr(e, "num", 0) == 4 else -120)
+        if st["mode"] == "view":  # 크게 보기: 휠 = 이전 / 다음 이미지
+            view_step(-1 if delta > 0 else 1)
+            return "break"
         if e.state & (0x0008 if IS_MAC else 0x0004):  # Ctrl/Cmd + 휠 = 크기
             size_var.set(max(140, min(520, size_var.get() + (20 if delta > 0 else -20))))
             on_size()
@@ -1068,6 +1195,9 @@ def main():
             return "break"
         if not st["tiles"]:
             return None
+        if letter == "g":
+            toggle_view()
+            return "break"
         if st["mode"] == "view":
             if ks in ("Left", "Up"):
                 view_step(-1)
@@ -1115,7 +1245,6 @@ def main():
     canvas.bind("<Button-5>", on_wheel)
     canvas.bind("<Configure>", lambda e: root.after_idle(redraw))
     root.bind("<KeyPress>", on_key)
-    src_e.bind("<Return>", lambda e: load_folder())
 
     # =====================================================================
     # 저장
@@ -1208,10 +1337,12 @@ def main():
                     key, im = data
                     if im is not None and key in st["wanted"]:
                         st["thumbs"][key] = ImageTk.PhotoImage(im)
-                        if st["mode"] == "grid":
-                            for i, (k, p) in enumerate(st["tiles"]):
-                                if p == key[0]:
+                        for i, (k, p) in enumerate(st["tiles"]):
+                            if p == key[0]:
+                                if st["mode"] == "grid" and key[1:] != (SW, SH):
                                     draw_tile(i)
+                                elif st["mode"] == "view" and key[1:] == (SW, SH):
+                                    draw_strip_tile(i)
                 elif kind == "prog":
                     d, t = data
                     prog.config(maximum=t, value=d)
@@ -1280,15 +1411,8 @@ def main():
         t.pack(fill="both", expand=True)
 
     def drop_paths(paths):
-        for p in paths:
-            if os.path.isdir(p):
-                src_var.set(p)
-                load_folder()
-                return
-            if os.path.isfile(p):
-                src_var.set(os.path.dirname(p))
-                load_folder()
-                return
+        """끌어다 놓은 폴더(여러 개 가능)를 이미지 폴더 목록에 추가. 파일이면 그 파일이 있는 폴더"""
+        add_folders([p if os.path.isdir(p) else os.path.dirname(p) for p in paths if os.path.exists(p)])
 
     if has_dnd:
         def on_drop(ev):
@@ -1297,7 +1421,7 @@ def main():
             except Exception as ex:
                 set_status("끌어다 놓기 실패: %s" % ex)
             return getattr(ev, "action", "copy")
-        for w in (root, canvas, src_e):
+        for w in (root, canvas, src_list):
             try:
                 w.drop_target_register(DND_FILES)
                 w.dnd_bind("<<Drop>>", on_drop)
@@ -1312,7 +1436,7 @@ def main():
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.after(50, poll)
-    if src_var.get() and os.path.isdir(src_var.get()):
+    if any(os.path.isdir(d) for d in folder_list()):
         root.after(300, load_folder)
     else:
         root.after(300, redraw)
