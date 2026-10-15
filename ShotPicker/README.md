@@ -6,7 +6,7 @@ AI로 뽑은 이미지가 든 폴더(여러 개 가능)를 열면 **파일 이�
 ![icon](assets/ShotPicker.png)
 
 ## 다운로드
-저장소 오른쪽 **Releases** → `Shot Picker v...` 중 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
+**[Shot Picker 받기](https://github.com/HsongLim/MagoTools/releases?q=shotpicker&expanded=true)** → 맨 위(최신 버전)에서 내 컴퓨터에 맞는 파일을 받으세요.
 
 | 컴퓨터 | 파일 |
 |---|---|

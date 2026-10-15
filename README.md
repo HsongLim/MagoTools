@@ -1,11 +1,12 @@
 # MagoTools
 
-팀에서 쓰는 툴 모음입니다. 툴마다 폴더가 하나씩 있고, 설치 파일은 오른쪽 **Releases**에서 받습니다.
+팀에서 쓰는 툴 모음입니다. 툴마다 폴더가 하나씩 있고, 설치 파일은 아래 표의 **받기** 링크에서 받습니다.
+(오른쪽 Releases 의 "Latest" 는 가장 최근에 올라간 툴 하나만 보여 줘서, 다른 툴은 아래로 밀려 있을 수 있어요)
 
 | 툴 | 설명 | 받기 |
 |---|---|---|
-| [Guide Maker](GuideMaker/) | 이미지에 가이드(펜/박스/화살표)를 그려 `원본이름_guide` 로 저장 | Releases → `Guide Maker v...` |
-| [Shot Picker](ShotPicker/) | AI로 뽑은 이미지를 샷별로 보며 골라 `pick` / `not_pick` 으로 나눠 저장 | Releases → `Shot Picker v...` |
+| [Guide Maker](GuideMaker/) | 이미지에 가이드(펜/박스/화살표)를 그려 `원본이름_guide` 로 저장 | [Guide Maker 받기](https://github.com/HsongLim/MagoTools/releases?q=guidemaker&expanded=true) |
+| [Shot Picker](ShotPicker/) | AI로 뽑은 이미지를 샷별로 보며 골라 `pick` / `not_pick` 으로 나눠 저장 | [Shot Picker 받기](https://github.com/HsongLim/MagoTools/releases?q=shotpicker&expanded=true) |
 
 ## 새 버전 / 새 툴 (관리자용)
 - 툴마다 태그 이름이 다릅니다: `guidemaker-v1.1.0` 처럼 `<툴이름>-v<버전>`

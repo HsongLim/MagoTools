@@ -6,7 +6,7 @@
 ![icon](assets/GuideMaker.png)
 
 ## 다운로드
-저장소 오른쪽 **Releases** → `Guide Maker v...` 중 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
+**[Guide Maker 받기](https://github.com/HsongLim/MagoTools/releases?q=guidemaker&expanded=true)** → 맨 위(최신 버전)에서 내 컴퓨터에 맞는 파일을 받으세요.
 
 | 컴퓨터 | 파일 |
 |---|---|
