@@ -1,0 +1,90 @@
+# shotpicker-v로 시작하는 태그(예: shotpicker-v1.1.0)를 올리면 윈도우 설치 파일 + 맥 dmg(Apple Silicon, Intel)를 만들어 Releases에 올림
+name: shotpicker
+
+on:
+  push:
+    tags: ["shotpicker-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VER=$(grep -m1 '^APP_VERSION' ShotPicker/src/shot_picker.py | cut -d'"' -f2)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME#shotpicker-v}" != "$VER" ]; then
+            echo "::error::태그(${GITHUB_REF_NAME})와 APP_VERSION($VER)이 다릅니다"; exit 1
+          fi
+
+  windows:
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: NSIS
+        shell: pwsh
+        run: |
+          # 설치 서버가 가끔 응답이 없어서 몇 번 다시 시도
+          for ($i = 1; $i -le 4; $i++) {
+            if ((Get-Command makensis -ErrorAction SilentlyContinue) -or (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { break }
+            choco install nsis -y --no-progress
+            if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { Start-Sleep -Seconds (20 * $i) }
+          }
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") -and -not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            winget install --id NSIS.NSIS -e --silent --accept-package-agreements --accept-source-agreements
+          }
+      - name: Build
+        shell: pwsh
+        run: ./ShotPicker/build/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: ShotPicker/dist/ShotPicker_Setup_*.exe
+
+  mac:
+    needs: check-version
+    strategy:
+      matrix:
+        os: [macos-15, macos-15-intel]   # Apple Silicon, Intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: PY=python bash ShotPicker/build/build_mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.os }}
+          path: ShotPicker/dist/ShotPicker_*.dmg
+
+  release:
+    needs: [check-version, windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=${{ needs.check-version.outputs.version }}
+          NOTES="$(sed -n "/^## v$VER/,/^## v/p" ShotPicker/CHANGELOG.md | sed '1d;$d')"
+          [ -z "$NOTES" ] && NOTES="Shot Picker v$VER"
+          gh release create "shotpicker-v$VER" out/* --title "Shot Picker v$VER" --notes "$NOTES" || \
+          gh release upload "shotpicker-v$VER" out/* --clobber

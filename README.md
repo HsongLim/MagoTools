@@ -5,6 +5,7 @@
 | 툴 | 설명 | 받기 |
 |---|---|---|
 | [Guide Maker](GuideMaker/) | 이미지에 가이드(펜/박스/화살표)를 그려 `원본이름_guide` 로 저장 | Releases → `Guide Maker v...` |
+| [Shot Picker](ShotPicker/) | AI로 뽑은 이미지를 샷별로 보며 골라 `pick` / `not_pick` 으로 나눠 저장 | Releases → `Shot Picker v...` |
 
 ## 새 버전 / 새 툴 (관리자용)
 - 툴마다 태그 이름이 다릅니다: `guidemaker-v1.1.0` 처럼 `<툴이름>-v<버전>`
