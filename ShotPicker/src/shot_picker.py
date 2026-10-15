@@ -109,30 +109,106 @@ def find_plates(plate_dir, parts=3):
     return {s: v[1] for s, v in best.items()}
 
 
-def plan_save(groups, picks, out_dir, include_empty=False):
-    """복사 계획: [(원본, 넣을 곳, 지울 곳)] , 건너뛴 샷 목록.
-    같은 이름이 다른 폴더에서 또 나오면 이름 뒤에 _2, _3 을 붙임"""
+VIDEO_EXTS = (".mp4", ".mov", ".mxf", ".avi", ".mkv")
+VIDEO_DIR = "04_video"
+# 작업 폴더 구조 (00_작업폴더_설명.txt 참고)
+WS_PLATE, WS_GUIDE, WS_AI, WS_VIDEO, WS_RESULT = "01_plate", "02_guide", "03_ai_images", "04_video", "05_result"
+
+
+def find_videos(plate_dir, parts=3):
+    """원본 플레이트 폴더 -> {샷 이름: 원본 영상}.  org 가 들어간 것, 그중 이름이 뒤인 것(높은 버전)"""
+    if not plate_dir or not os.path.isdir(plate_dir):
+        return {}
+    best = {}
+    for dp, dns, fns in os.walk(plate_dir):
+        dns[:] = [d for d in dns if not d.startswith(".")]
+        for fn in fns:
+            if not fn.lower().endswith(VIDEO_EXTS) or fn.startswith("."):
+                continue
+            path = os.path.join(dp, fn)
+            sh = shot_of(fn, parts)
+            score = (1 if "org" in path.lower() else 0, fn.lower())
+            if sh not in best or score > best[sh][0]:
+                best[sh] = (score, path)
+    return {k: v[1] for k, v in best.items()}
+
+
+def rank_name(path, shot, rank):
+    """고른 순위를 이름에 넣음:  EP01_S048_9040_v002_01.png (2위) -> EP01_S048_9040_r02_v002_01.png"""
+    base = os.path.basename(path)
+    rest = base[len(shot):] if base.startswith(shot) else "_" + base
+    rest = re.sub(r"^_r\d{2}(?=_)", "", rest)  # 이미 순위가 붙은 이름이면 떼고 다시
+    return "%s_r%02d%s" % (shot, rank, rest)
+
+
+def _stale(folder, shot, sources, keep, parts):
+    """folder 안의 이 샷 이미지 중, 예전에 우리가 복사해 둔 것(원본과 크기·시간이 같음)인데 이번 계획에 없는 것"""
+    out = []
+    if not os.path.isdir(folder):
+        return out
+    keep = {norm(k) for k in keep}
+    for fn in os.listdir(folder):
+        fp = os.path.join(folder, fn)
+        if (fn.lower().endswith(IMAGE_EXTS) and shot_of(fn, parts) == shot and norm(fp) not in keep
+                and os.path.isfile(fp) and any(same_file(src, fp) for src in sources)):
+            out.append(fp)
+    return out
+
+
+def plan_save(groups, picks, out_dir, include_empty=False, parts=3):
+    """pick / not_pick 복사 계획 -> (복사 [(원본, 넣을 곳)], 지울 예전 복사본, 건너뛴 샷).
+    picks[샷] = 고른 순서대로 된 목록 (1위, 2위, ...). pick 쪽 이름에 순위(_r01_)를 붙임.
+    not_pick 에서 같은 이름이 다른 폴더에서 또 나오면 이름 뒤에 _2, _3 을 붙임"""
     d_pick, d_no = os.path.join(out_dir, PICK_DIR), os.path.join(out_dir, NOPICK_DIR)
     used = {}
-    plan, skipped = [], []
+    plan, removals, skipped = [], [], []
     for shot, files in groups.items():
-        sel = picks.get(shot) or set()
+        sel = list(picks.get(shot) or [])
         if not sel and not include_empty:
             skipped.append(shot)
             continue
+        dsts = []
         for f in files:
-            base = os.path.basename(f)
-            name, n = base, 1
-            while name.lower() in used and used[name.lower()] != norm(f):
-                n += 1
-                stem, ext = os.path.splitext(base)
-                name = "%s_%d%s" % (stem, n, ext)
-            used[name.lower()] = norm(f)
-            picked = f in sel
-            dst = os.path.join(d_pick if picked else d_no, name)
-            other = os.path.join(d_no if picked else d_pick, name)
-            plan.append((f, dst, other))
-    return plan, skipped
+            if f in sel:
+                dst = os.path.join(d_pick, rank_name(f, shot, sel.index(f) + 1))
+            else:
+                base = os.path.basename(f)
+                name, n = base, 1
+                while name.lower() in used and used[name.lower()] != norm(f):
+                    n += 1
+                    stem, ext = os.path.splitext(base)
+                    name = "%s_%d%s" % (stem, n, ext)
+                used[name.lower()] = norm(f)
+                dst = os.path.join(d_no, name)
+            plan.append((f, dst))
+            dsts.append(dst)
+        for d in (d_pick, d_no):  # 순위가 바뀌었거나 고르기를 바꾼 예전 복사본
+            removals += _stale(d, shot, files, dsts, parts)
+    return plan, removals, skipped
+
+
+def plan_video(groups, picks, videos, out_root, parts=3):
+    """04_video 계획: 고른 게 있는 샷마다 out_root/샷/ 에 원본 영상 + 고른 이미지(순위 이름)
+    -> (복사 목록, 지울 예전 복사본, 만든 샷, 원본 영상이 없는 샷)"""
+    plan, removals, done, no_video = [], [], [], []
+    for shot, files in groups.items():
+        sel = list(picks.get(shot) or [])
+        if not sel:
+            continue
+        d = os.path.join(out_root, shot)
+        dsts = []
+        v = videos.get(shot)
+        if v:
+            plan.append((v, os.path.join(d, os.path.basename(v))))
+        else:
+            no_video.append(shot)
+        for i, f in enumerate(sel):
+            dst = os.path.join(d, rank_name(f, shot, i + 1))
+            plan.append((f, dst))
+            dsts.append(dst)
+        removals += _stale(d, shot, files, dsts, parts)
+        done.append(shot)
+    return plan, removals, done, no_video
 
 
 def same_file(a, b):
@@ -143,21 +219,24 @@ def same_file(a, b):
         return False
 
 
-def run_save(plan, progress=None):
-    """계획대로 복사 (이미 같은 파일이 있으면 건너뜀). 반대쪽 폴더에 예전에 넣은 복사본은 지움"""
+def run_save(plan, removals=(), progress=None):
+    """계획대로 복사 (이미 같은 파일이 있으면 건너뜀) + 예전 복사본 정리 (원본은 건드리지 않음)"""
     copied = removed = 0
-    for i, (src, dst, other) in enumerate(plan):
+    for i, (src, dst) in enumerate(plan):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if not same_file(src, dst):
             tmp = dst + ".part"
             shutil.copy2(src, tmp)
             os.replace(tmp, dst)
             copied += 1
-        if os.path.isfile(other) and same_file(src, other):  # 우리가 예전에 복사해 둔 것만 지움
-            os.remove(other)
-            removed += 1
         if progress:
             progress(i + 1, len(plan))
+    for fp in removals:
+        try:
+            os.remove(fp)
+            removed += 1
+        except Exception:
+            pass
     return copied, removed
 
 
@@ -504,7 +583,7 @@ def main():
     st = {
         "groups": {}, "shots": [], "shot": None, "picks": {}, "plates": {},
         "tiles": [], "focus": 0, "mode": settings.get("mode", "view"), "flip": False,
-        "thumbs": {}, "wanted": set(), "busy": False, "folder": None, "folders": [], "loaded": set(),
+        "thumbs": {}, "wanted": set(), "busy": False, "folder": None, "folders": [], "loaded": set(), "videos": {},
     }
     q = queue.Queue()
     thumb_q = queue.LifoQueue()
@@ -564,6 +643,39 @@ def main():
     ttk.Button(top, text="찾기...", command=browse_plate).grid(row=1, column=2, sticky="we")
     ttk.Label(top, text="(선택) 같은 샷 이름의 원본 이미지 폴더", foreground="#888888").grid(row=1, column=3, sticky="w", padx=6)
     top.columnconfigure(1, weight=1)
+
+    # ---- 작업 폴더: 정해 두면 03_ai_images / 01_plate / 04_video 를 알아서 씀 ----
+    wsf = ttk.Frame(root, padding=(8, 6, 8, 0))
+    wsf.pack(fill="x", before=top)
+    ws_var = tk.StringVar(value=settings.get("workspace", ""))
+    ttk.Label(wsf, text="작업 폴더").pack(side="left")
+    ttk.Entry(wsf, textvariable=ws_var).pack(side="left", fill="x", expand=True, padx=6)
+
+    def browse_ws():
+        d = filedialog.askdirectory(parent=root, initialdir=ws_var.get() or os.path.expanduser("~"))
+        if d:
+            ws_var.set(d)
+            apply_ws()
+    ttk.Button(wsf, text="찾기...", command=browse_ws).pack(side="left")
+    ttk.Button(wsf, text="이 작업 폴더로 맞추기", command=lambda: apply_ws()).pack(side="left", padx=4)
+    ttk.Label(wsf, text="이미지 = 03_ai_images, 원본 = 01_plate, 영상 폴더 = 04_video",
+              foreground="#888888").pack(side="left", padx=6)
+
+    def ws_path(sub):
+        w = ws_var.get().strip().strip('"')
+        return os.path.join(w, sub) if w else ""
+
+    def apply_ws():
+        w = ws_var.get().strip().strip('"')
+        if not w or not os.path.isdir(w):
+            messagebox.showwarning(APP_NAME, "작업 폴더가 없습니다:\n%s" % w, parent=root)
+            return
+        ai, plate = ws_path(WS_AI), ws_path(WS_PLATE)
+        os.makedirs(ai, exist_ok=True)
+        src_list.delete(0, "end")
+        src_list.insert("end", ai)
+        plate_var.set(plate if os.path.isdir(plate) else "")
+        load_folder()
     r4 = ttk.Frame(top)
     r4.grid(row=2, column=0, columnspan=4, sticky="we", pady=(4, 0))
     ttk.Button(r4, text="불러오기 / 새로고침", command=lambda: load_folder()).pack(side="left")
@@ -636,6 +748,7 @@ def main():
     bot.pack(fill="x")
     save_btn = ttk.Button(bot, text="저장  (pick / not_pick 로 복사)", command=lambda: do_save())
     save_btn.pack(side="left")
+    ttk.Button(bot, text="영상 폴더 만들기 (04_video)", command=lambda: do_video()).pack(side="left", padx=(6, 0))
     empty_var = tk.BooleanVar(value=bool(settings.get("include_empty", False)))
     ttk.Checkbutton(bot, text="고른 게 없는 샷도 not_pick 으로", variable=empty_var).pack(side="left", padx=12)
     ttk.Button(bot, text="이미지 폴더 열기", command=lambda: open_folder(out_dir()) if os.path.isdir(out_dir()) else None
@@ -667,9 +780,10 @@ def main():
 
     def remember_picks():
         keep = [p for p in picked_store() if p not in st["loaded"]]
-        cur = [norm(p) for v in st["picks"].values() for p in v]
-        settings["picked"] = sorted(set(keep) | set(cur))
-        settings.update(srcs=folder_list(), plate=plate_var.get(), parts=parts_var.get(),
+        cur = [norm(p) for v in st["picks"].values() for p in v]  # 샷마다 1위, 2위, ... 순서
+        ks = set(keep)
+        settings["picked"] = keep + [c for c in cur if c not in ks]
+        settings.update(srcs=folder_list(), workspace=ws_var.get().strip(), plate=plate_var.get(), parts=parts_var.get(),
                         show_orig2=orig_var.get(), include_empty=empty_var.get())
         settings.pop("src", None)
         save_settings(settings)
@@ -709,11 +823,15 @@ def main():
         st["groups"] = group_by_shot(paths, parts)
         st["shots"] = list(st["groups"])
         st["plates"] = find_plates(plate_var.get().strip().strip('"'), parts)
-        saved = set(picked_store())
+        bypath = {norm(p): p for p in paths}
         st["picks"] = {}
-        for p in paths:
-            if norm(p) in saved:
-                st["picks"].setdefault(shot_of(p, parts), set()).add(p)
+        for n in picked_store():  # 저장된 순서 = 순위
+            p = bypath.get(n)
+            if p:
+                lst = st["picks"].setdefault(shot_of(p, parts), [])
+                if p not in lst:
+                    lst.append(p)
+        st["videos"] = find_videos(plate_var.get().strip().strip('"'), parts)
         if paths:
             ex = os.path.basename(paths[0])
             parts_hint.config(text="예) %s  ->  %s" % (ex, shot_of(ex, parts)))
@@ -776,21 +894,35 @@ def main():
     # 고르기
     # =====================================================================
     def is_picked(p):
-        return p in st["picks"].get(st["shot"], ())
+        return p in (st["picks"].get(st["shot"]) or ())
+
+    def pick_rank(p):
+        lst = st["picks"].get(st["shot"]) or []
+        return lst.index(p) + 1 if p in lst else 0
 
     def toggle_pick(p):
-        s = st["picks"].setdefault(st["shot"], set())
-        if p in s:
-            s.discard(p)
+        """고르면 맨 뒤 순위로, 다시 누르면 빠지고 뒤 순위가 하나씩 올라감"""
+        lst = st["picks"].setdefault(st["shot"], [])
+        if p in lst:
+            lst.remove(p)
         else:
-            s.add(p)
+            lst.append(p)
+        update_shot_row(st["shot"])
+        remember_soon()
+
+    def set_rank(p, n):
+        """숫자 키: 이 이미지를 n위로 (안 고른 이미지면 고르면서 n위)"""
+        lst = st["picks"].setdefault(st["shot"], [])
+        if p in lst:
+            lst.remove(p)
+        lst.insert(max(0, min(len(lst), n - 1)), p)
         update_shot_row(st["shot"])
         remember_soon()
 
     def pick_all(on):
         if not st["shot"]:
             return
-        st["picks"][st["shot"]] = set(st["groups"][st["shot"]]) if on else set()
+        st["picks"][st["shot"]] = list(st["groups"][st["shot"]]) if on else []
         update_shot_row(st["shot"])
         redraw()
         remember_soon()
@@ -880,8 +1012,9 @@ def main():
             canvas.create_text(x + 8, y + 8, anchor="nw", text="ORIGINAL", fill=ORIG,
                                font=("TkDefaultFont", 10, "bold"), tags=tg)
         elif picked:
-            canvas.create_rectangle(x + 6, y + 6, x + 56, y + 26, fill=PICK, outline="", tags=tg)
-            canvas.create_text(x + 31, y + 16, text="PICK", fill="#000000", font=("TkDefaultFont", 10, "bold"), tags=tg)
+            canvas.create_rectangle(x + 6, y + 6, x + 76, y + 28, fill=PICK, outline="", tags=tg)
+            canvas.create_text(x + 41, y + 17, text="PICK %d" % pick_rank(p), fill="#000000",
+                               font=("TkDefaultFont", 11, "bold"), tags=tg)
         canvas.create_text(x + 6, y + ih + 6 + lab // 2, anchor="w", text=short(os.path.basename(p), ts),
                            fill="#dddddd" if kind == "ai" else ORIG, tags=tg)
 
@@ -1001,7 +1134,8 @@ def main():
                 canvas.create_rectangle(8, top_h - 2, W - 8, H - 6, outline=PICK, width=4)
         n = ais.index(st["focus"]) + 1
         canvas.create_text(10, 6, anchor="nw", fill=PICK if picked else "#dddddd", font=("TkDefaultFont", 11, "bold"),
-                           text="%s%d / %d   %s" % ("✓ PICK   " if picked else "", n, len(ais), os.path.basename(p)))
+                           text="%s%d / %d   %s" % (("✓ PICK %d위   " % pick_rank(p)) if picked else "", n, len(ais),
+                                                      os.path.basename(p)))
         canvas.create_text(W - 10, 6, anchor="ne", fill="#888888",
                            text="← → 이미지   ↓ ↑ 샷   클릭·스페이스 고르기   O 원본 나란히   F 원본으로 바꿔 보기   G 모아 보기")
 
@@ -1078,8 +1212,9 @@ def main():
             strip.create_text(x + 6, y + 4, anchor="nw", text="ORIGINAL", fill=ORIG, font=("TkDefaultFont", 9, "bold"),
                               tags=tg)
         elif picked:
-            strip.create_rectangle(x + 4, y + 4, x + 44, y + 20, fill=PICK, outline="", tags=tg)
-            strip.create_text(x + 24, y + 12, text="PICK", fill="#000000", font=("TkDefaultFont", 9, "bold"), tags=tg)
+            strip.create_rectangle(x + 4, y + 4, x + 58, y + 22, fill=PICK, outline="", tags=tg)
+            strip.create_text(x + 31, y + 13, text="PICK %d" % pick_rank(p), fill="#000000",
+                              font=("TkDefaultFont", 10, "bold"), tags=tg)
         n = sum(1 for t in st["tiles"][:i + 1] if t[0] == "ai")
         strip.create_text(x + SW // 2, y + SH + 11, text=("원본" if kind == "orig" else str(n)),
                           fill=ORIG if kind == "orig" else ("#ffffff" if focus else "#999999"), tags=tg)
@@ -1199,6 +1334,10 @@ def main():
         if letter == "g":
             toggle_view()
             return "break"
+        if e.char and e.char in "123456789" and st["tiles"] and st["tiles"][st["focus"]][0] == "ai":
+            set_rank(st["tiles"][st["focus"]][1], int(e.char))  # 숫자 = 그 순위로 고르기
+            redraw()
+            return "break"
         if st["mode"] == "view":
             if ks == "Left":
                 view_step(-1)
@@ -1254,17 +1393,23 @@ def main():
     # =====================================================================
     # 저장
     # =====================================================================
+    def cur_parts():
+        try:
+            return max(1, int(parts_var.get()))
+        except Exception:
+            return 3
+
     def do_save():
         if st["busy"] or not st["groups"]:
             return
         od = out_dir()
         if not od:
             return
-        plan, skipped = plan_save(st["groups"], st["picks"], od, empty_var.get())
+        plan, removals, skipped = plan_save(st["groups"], st["picks"], od, empty_var.get(), cur_parts())
         if not plan:
             messagebox.showinfo(APP_NAME, "고른 이미지가 없습니다.\n썸네일을 클릭해서 고른 뒤 저장하세요.", parent=root)
             return
-        npick = sum(1 for _, d, _ in plan if os.path.basename(os.path.dirname(d)) == PICK_DIR)
+        npick = sum(1 for _, d in plan if os.path.basename(os.path.dirname(d)) == PICK_DIR)
         msg = ("저장할까요?\n\n  pick      %d장\n  not_pick  %d장\n\n저장 위치: %s 안의 pick / not_pick"
                % (npick, len(plan) - npick, od))
         if skipped:
@@ -1278,8 +1423,43 @@ def main():
 
         def work():
             try:
-                c, r = run_save(plan, lambda d, t: q.put(("prog", (d, t))))
+                c, r = run_save(plan, removals, lambda d, t: q.put(("prog", (d, t))))
                 q.put(("saved", (c, r, npick, len(plan) - npick, od)))
+            except Exception as e:
+                q.put(("save_err", str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def do_video():
+        """고른 게 있는 샷마다 04_video/샷/ 에 원본 영상 + 고른 이미지(순위 이름) 를 모음"""
+        if st["busy"] or not st["groups"]:
+            return
+        out_root = ws_path(WS_VIDEO)
+        if not out_root:
+            d = filedialog.askdirectory(parent=root, title="영상 폴더(04_video)를 만들 곳",
+                                        initialdir=os.path.dirname(out_dir() or "") or os.path.expanduser("~"))
+            if not d:
+                return
+            out_root = d if os.path.basename(d) == WS_VIDEO else os.path.join(d, WS_VIDEO)
+        plan, removals, done, no_video = plan_video(st["groups"], st["picks"], st.get("videos") or {},
+                                                    out_root, cur_parts())
+        if not done:
+            messagebox.showinfo(APP_NAME, "고른 이미지가 있는 샷이 없습니다.", parent=root)
+            return
+        msg = "영상 폴더를 만들까요?\n\n  샷 %d개 -> %s\n  (샷마다 원본 영상 + 고른 이미지, 이름에 순위 _r01_ ...)" % (
+            len(done), out_root)
+        if no_video:
+            msg += ("\n\n원본 영상을 못 찾은 샷 %d개 (이미지만 넣음): %s%s\n원본 플레이트 폴더를 확인하세요."
+                    % (len(no_video), ", ".join(no_video[:6]), " …" if len(no_video) > 6 else ""))
+        if not messagebox.askyesno(APP_NAME, msg, parent=root):
+            return
+        remember_picks()
+        st["busy"] = True
+        save_btn.config(state="disabled")
+
+        def work():
+            try:
+                c, r = run_save(plan, removals, lambda d, t: q.put(("prog", (d, t))))
+                q.put(("video_done", (len(done), len(no_video), c, out_root)))
             except Exception as e:
                 q.put(("save_err", str(e)))
         threading.Thread(target=work, daemon=True).start()
@@ -1360,6 +1540,15 @@ def main():
                     if messagebox.askyesno(APP_NAME, "저장했습니다.\n\npick %d장 / not_pick %d장\n\n폴더를 열까요?"
                                            % (npk, nno), parent=root):
                         open_folder(od)
+                elif kind == "video_done":
+                    n, nv, c, out_root = data
+                    st["busy"] = False
+                    save_btn.config(state="normal")
+                    set_status("영상 폴더 %d개 완료 (새로 복사 %d)%s" % (n, c, (", 원본 영상 없음 %d" % nv) if nv else ""))
+                    if messagebox.askyesno(APP_NAME, "영상 폴더를 만들었습니다. (샷 %d개)\n\n%s\n\n"
+                                           "다음: 이 폴더를 Claude 에게 주면 샷마다 prompt.txt 를 만들어 줍니다.\n\n"
+                                           "폴더를 열까요?" % (n, out_root), parent=root):
+                        open_folder(out_root)
                 elif kind == "save_err":
                     st["busy"] = False
                     save_btn.config(state="normal")
